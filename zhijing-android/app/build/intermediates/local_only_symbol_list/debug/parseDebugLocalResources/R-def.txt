@@ -1,0 +1,29 @@
+R_DEF: Internal format may change without notice
+local
+color colorOnPrimary
+color colorPrimary
+color colorPrimaryVariant
+color colorSecondary
+color ic_launcher_background
+drawable ic_launcher_foreground
+id btnExpand
+id btnLater
+id btnWhy
+id chainContainer
+id emptyView
+id fabSettings
+id recyclerView
+id toolbar
+id tvContent
+id tvReason
+id tvSource
+id tvTime
+id tvTitle
+layout activity_main
+layout activity_recommend_card
+layout item_content
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Theme.Transparent
+style Theme.Zhijing

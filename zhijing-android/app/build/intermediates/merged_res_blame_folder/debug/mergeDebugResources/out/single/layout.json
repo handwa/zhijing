@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-mergeDebugResources-36:\\layout\\activity_recommend_card.xml",
+        "source": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-main-39:\\layout\\activity_recommend_card.xml"
+    },
+    {
+        "merged": "com.zhijing.app-mergeDebugResources-36:/layout/activity_main.xml",
+        "source": "com.zhijing.app-main-39:/layout/activity_main.xml"
+    },
+    {
+        "merged": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-mergeDebugResources-36:\\layout\\activity_main.xml",
+        "source": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-main-39:\\layout\\activity_main.xml"
+    },
+    {
+        "merged": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-mergeDebugResources-36:\\layout\\item_content.xml",
+        "source": "C:\\Users\\32376\\.gradle\\daemon\\8.7\\com.zhijing.app-main-39:\\layout\\item_content.xml"
+    }
+]
