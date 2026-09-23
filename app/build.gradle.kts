@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         ndk{
-            abiFilters+=("arm64-v8a")
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
         applicationId = "com.example.zhijing"
         minSdk = 33
