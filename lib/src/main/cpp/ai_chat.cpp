@@ -71,7 +71,9 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
 }
 
 extern "C"
-JNIEXPORT jstring JNICALL
+JNIEXPORT jstring
+
+jstring
 Java_com_arm_aichat_internal_InferenceEngineImpl_lastNativeError(JNIEnv *env, jobject) {
     return env->NewStringUTF(aichat_last_native_log.c_str());
 }
@@ -114,7 +116,9 @@ static common_sampler *new_sampler(float temp) {
 }
 
 extern "C"
-JNIEXPORT jint JNICALL
+JNIEXPORT jint
+
+jint
 Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobject /*unused*/) {
     auto *context = init_context(g_model);
     if (!context) { return 1; }
@@ -138,7 +142,9 @@ static std::string get_backend() {
 }
 
 extern "C"
-JNIEXPORT jstring JNICALL
+JNIEXPORT jstring
+
+jstring
 Java_com_arm_aichat_internal_InferenceEngineImpl_systemInfo(JNIEnv *env, jobject /*unused*/) {
     return env->NewStringUTF(llama_print_system_info());
 }
@@ -487,7 +493,9 @@ static bool is_valid_utf8(const char *string) {
 }
 
 extern "C"
-JNIEXPORT jstring JNICALL
+JNIEXPORT jstring
+
+jstring
 Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
         JNIEnv *env,
         jobject /*unused*/
