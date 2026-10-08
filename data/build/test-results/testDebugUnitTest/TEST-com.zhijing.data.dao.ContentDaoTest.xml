@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.zhijing.data.dao.ContentDaoTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:01:17.828Z" hostname="韩佳祺" time="0.255">
+  <properties/>
+  <testcase name="insertThenFindById" classname="com.zhijing.data.dao.ContentDaoTest" time="0.032"/>
+  <testcase name="updateEmbeddingStoresVectorAndStatus" classname="com.zhijing.data.dao.ContentDaoTest" time="0.036"/>
+  <testcase name="findByIdsReturnsMatchingRows" classname="com.zhijing.data.dao.ContentDaoTest" time="0.028"/>
+  <testcase name="findByAnalysisStatusFiltersByStatus" classname="com.zhijing.data.dao.ContentDaoTest" time="0.029"/>
+  <testcase name="updateRemarkAndDeleteById" classname="com.zhijing.data.dao.ContentDaoTest" time="0.034"/>
+  <testcase name="observeAllOrdersByImportTimeDescending" classname="com.zhijing.data.dao.ContentDaoTest" time="0.032"/>
+  <testcase name="countAndObserveCountReflectInserts" classname="com.zhijing.data.dao.ContentDaoTest" time="0.031"/>
+  <testcase name="updateEmbeddingStatusKeepsPreviouslyStoredVector" classname="com.zhijing.data.dao.ContentDaoTest" time="0.031"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

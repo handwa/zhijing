@@ -1,0 +1,28 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.zhijing.data.test.data-mergeDebugUnitTestResources-9:/values-v18/values-v18.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\32376\\.gradle\\caches\\8.14.5\\transforms\\15d6a8cabee73a1a44b11ed68632182a\\transformed\\core-1.6.1\\res\\values-v18\\values.xml",
+                    "from": {
+                        "startLines": "4,12",
+                        "startColumns": "0,0",
+                        "startOffsets": "146,562",
+                        "endLines": "11,19",
+                        "endColumns": "8,8",
+                        "endOffsets": "561,975"
+                    },
+                    "to": {
+                        "startLines": "2,10",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,475",
+                        "endLines": "9,17",
+                        "endColumns": "8,8",
+                        "endOffsets": "470,888"
+                    }
+                }
+            ]
+        }
+    ]
+}

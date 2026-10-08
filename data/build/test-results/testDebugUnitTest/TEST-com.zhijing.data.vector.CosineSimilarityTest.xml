@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.zhijing.data.vector.CosineSimilarityTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-08T08:01:18.090Z" hostname="韩佳祺" time="0.003">
+  <properties/>
+  <testcase name="topKWithNonPositiveCountReturnsEmpty" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <testcase name="orthogonalVectorsScoreZero" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.001"/>
+  <testcase name="identicalVectorsScoreOne" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <testcase name="oppositeVectorsScoreMinusOne" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <testcase name="topKFiltersByThresholdAndKeepsDescendingOrder" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.001"/>
+  <testcase name="topKLimitsResultCount" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <testcase name="mismatchedLengthOrEmptyReturnsZero" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <testcase name="zeroVectorDoesNotProduceNaN" classname="com.zhijing.data.vector.CosineSimilarityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
