@@ -1,0 +1,13 @@
+com.zhijing.data.test.data-core-1.6.1-0 C:\Users\32376\.gradle\caches\8.14.5\transforms\15d6a8cabee73a1a44b11ed68632182a\transformed\core-1.6.1\res
+com.zhijing.data.test.data-tracing-1.1.0-1 C:\Users\32376\.gradle\caches\8.14.5\transforms\2827e248d6e97e987ae6b1c529df139d\transformed\tracing-1.1.0\res
+com.zhijing.data.test.data-room-ktx-2.6.1-2 C:\Users\32376\.gradle\caches\8.14.5\transforms\53675731ef720911ea4c2734fc6b05b8\transformed\room-ktx-2.6.1\res
+com.zhijing.data.test.data-annotation-experimental-1.1.0-rc01-3 C:\Users\32376\.gradle\caches\8.14.5\transforms\9da9b35f72cfd4d59374801ca1eabf4f\transformed\annotation-experimental-1.1.0-rc01\res
+com.zhijing.data.test.data-sqlite-2.4.0-4 C:\Users\32376\.gradle\caches\8.14.5\transforms\b205d4e128fc78a2e5e06676319b5447\transformed\sqlite-2.4.0\res
+com.zhijing.data.test.data-room-runtime-2.6.1-5 C:\Users\32376\.gradle\caches\8.14.5\transforms\bd4a91e0bddef62beb9d220bee286d01\transformed\room-runtime-2.6.1\res
+com.zhijing.data.test.data-core-runtime-2.2.0-6 C:\Users\32376\.gradle\caches\8.14.5\transforms\c1c7605fb243c5cffcf6df78d4804de1\transformed\core-runtime-2.2.0\res
+com.zhijing.data.test.data-sqlite-framework-2.4.0-7 C:\Users\32376\.gradle\caches\8.14.5\transforms\ceb308520025666c04e969827f292a25\transformed\sqlite-framework-2.4.0\res
+com.zhijing.data.test.data-test-8 D:\zhijing\data\build\generated\res\resValues\test\debug
+com.zhijing.data.test.data-mergeDebugUnitTestResources-9 D:\zhijing\data\build\intermediates\incremental\debugUnitTest\mergeDebugUnitTestResources\merged.dir
+com.zhijing.data.test.data-mergeDebugUnitTestResources-10 D:\zhijing\data\build\intermediates\incremental\debugUnitTest\mergeDebugUnitTestResources\stripped.dir
+com.zhijing.data.test.data-debugUnitTest-11 D:\zhijing\data\build\intermediates\merged_res\debugUnitTest\mergeDebugUnitTestResources
+com.zhijing.data.test.data-debug-12 D:\zhijing\data\build\intermediates\packaged_res\debug\packageDebugResources

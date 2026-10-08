@@ -22,4 +22,5 @@ dependencyResolutionManagement {
 rootProject.name = "ZhiJing"
 include(":app")
 include(":lib")
+include(":data")
  
