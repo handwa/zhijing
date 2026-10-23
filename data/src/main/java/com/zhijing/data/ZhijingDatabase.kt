@@ -20,6 +20,8 @@ import com.zhijing.data.entity.WakePlanEntity
 import com.zhijing.data.dao.AssociationDao
 import com.zhijing.data.dao.ChunkDao
 import com.zhijing.data.dao.ContentDao
+import com.zhijing.data.dao.ConversationDao
+import com.zhijing.data.dao.MessageDao
 import com.zhijing.data.dao.ParseTaskDao
 import com.zhijing.data.dao.PetStatusDao
 import com.zhijing.data.dao.QaRecordDao
@@ -27,6 +29,8 @@ import com.zhijing.data.dao.StanceCompareDao
 import com.zhijing.data.dao.TopicDao
 import com.zhijing.data.dao.VectorDao
 import com.zhijing.data.dao.WakePlanDao
+import com.zhijing.data.entity.ConversationEntity
+import com.zhijing.data.entity.MessageEntity
 
 /**
  * 「知境」本地数据库。
@@ -45,6 +49,8 @@ import com.zhijing.data.dao.WakePlanDao
         ContentEntity::class,
         ChunkEntity::class,
         VectorEntity::class,
+        ConversationEntity::class,
+        MessageEntity::class,
         AssociationEntity::class,
         TopicEntity::class,
         StanceCompareEntity::class,
@@ -53,7 +59,7 @@ import com.zhijing.data.dao.WakePlanDao
         PetStatusEntity::class,
         ParseTaskEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(EnumConverters::class, ListConverters::class)
@@ -61,6 +67,8 @@ internal abstract class ZhijingDatabase : RoomDatabase() {
 
     abstract fun contentDao(): ContentDao
     abstract fun chunkDao(): ChunkDao
+    abstract fun messageDao(): MessageDao
+    abstract fun  conversationDao(): ConversationDao
     abstract fun vectorDao(): VectorDao
     abstract fun associationDao(): AssociationDao
     abstract fun topicDao(): TopicDao
@@ -81,7 +89,8 @@ internal abstract class ZhijingDatabase : RoomDatabase() {
                     context.applicationContext,
                     ZhijingDatabase::class.java,
                     DbConstants.DATABASE_NAME
-                ).build().also { instance = it }
+                )   .fallbackToDestructiveMigration()
+                    .build().also { instance = it }
             }
     }
 }

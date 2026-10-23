@@ -16,9 +16,22 @@ interface InferenceEngine {
     /**
      * Load a model from the given path.
      *
+     * @param contextSize requested context window in tokens. `0` means "use the
+     *        model's own trained context", which is the most portable choice when
+     *        swapping models. Prefer a value sized to the device's memory.
      * @throws UnsupportedArchitectureException if model architecture not supported
      */
-    suspend fun loadModel(pathToModel: String)
+    suspend fun loadModel(pathToModel: String, contextSize: Int = 0)
+
+    /**
+     * Context window actually in effect for the loaded model (tokens).
+     */
+    fun contextWindow(): Int
+
+    /**
+     * Tokens currently occupied by the system prompt + conversation history.
+     */
+    fun contextOccupied(): Int
 
     /**
      * Sends a system prompt to the loaded model

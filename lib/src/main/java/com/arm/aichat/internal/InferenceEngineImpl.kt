@@ -89,10 +89,16 @@ internal class InferenceEngineImpl private constructor(
     private external fun lastNativeError(): String
 
     @FastNative
-    private external fun prepare(): Int
+    private external fun prepare(contextSize:Int): Int
 
     @FastNative
     private external fun systemInfo(): String
+
+    @FastNative
+    private external fun contextSize(): Int
+
+    @FastNative
+    private external fun contextUsed(): Int
 
     @FastNative
     private external fun benchModel(pp: Int, tg: Int, pl: Int, nr: Int): String
@@ -148,9 +154,12 @@ internal class InferenceEngineImpl private constructor(
     }
 
     /**
-     * Load the LLM
+     * Load the LLM.
+     *
+     * @param contextSize requested context window in tokens. `0` (default) lets
+     *        the native side use the model's own trained context.
      */
-    override suspend fun loadModel(pathToModel: String) =
+    override suspend fun loadModel(pathToModel: String, contextSize: Int) =
         withContext(llamaDispatcher) {
             check(_state.value is InferenceEngine.State.Initialized) {
                 "Cannot load model in ${_state.value.javaClass.simpleName}!"
@@ -179,10 +188,10 @@ internal class InferenceEngineImpl private constructor(
                         )
                     }
                 }
-                prepare().let {
-                    if (it != 0) throw IOException("Failed to prepare resources")
+                prepare(contextSize).let {
+                    if (it != 0) throw IOException("Failed to prepare resources (n_ctx=$contextSize)")
                 }
-                Log.i(TAG, "Model loaded!")
+                Log.i(TAG, "Model loaded! contextSize=${contextSize()}, used=${contextUsed()}")
                 _readyForSystemPrompt = true
 
                 _cancelGeneration = false
@@ -269,6 +278,16 @@ internal class InferenceEngineImpl private constructor(
             throw e
         }
     }.flowOn(llamaDispatcher)
+
+    /**
+     * Context window actually in effect for the loaded model (tokens).
+     */
+    override fun contextWindow(): Int = contextSize()
+
+    /**
+     * Tokens currently occupied by the system prompt + conversation history.
+     */
+    override fun contextOccupied(): Int = contextUsed()
 
     /**
      * Benchmark the model
