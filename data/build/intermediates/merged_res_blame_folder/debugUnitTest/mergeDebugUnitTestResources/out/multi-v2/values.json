@@ -4,7 +4,7 @@
             "outputFile": "com.zhijing.data.test.data-mergeDebugUnitTestResources-9:/values/values.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\32376\\.gradle\\caches\\8.14.5\\transforms\\15d6a8cabee73a1a44b11ed68632182a\\transformed\\core-1.6.1\\res\\values\\values.xml",
+                    "source": "C:\\Users\\lenovo\\.gradle\\caches\\8.14.5\\transforms\\15d6a8cabee73a1a44b11ed68632182a\\transformed\\core-1.6.1\\res\\values\\values.xml",
                     "from": {
                         "startLines": "4,11",
                         "startColumns": "0,0",

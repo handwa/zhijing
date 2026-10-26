@@ -3,8 +3,10 @@ package com.zhijing.data
 import android.content.Context
 import com.zhijing.data.repository.AssociationRepository
 import com.zhijing.data.repository.ContentRepository
+import com.zhijing.data.repository.ConversationRepository
 import com.zhijing.data.repository.DefaultAssociationRepository
 import com.zhijing.data.repository.DefaultContentRepository
+import com.zhijing.data.repository.DefaultConversationRepository
 import com.zhijing.data.repository.DefaultParseTaskRepository
 import com.zhijing.data.repository.DefaultPetStatusRepository
 import com.zhijing.data.repository.DefaultQaRecordRepository
@@ -33,7 +35,8 @@ import com.zhijing.data.vector.RoomVectorSearchStore
  * Room 实体、DAO、数据库类型全部是 `internal`，不会泄漏到调用方。
  */
 class ZhiJingData internal constructor(private val db: ZhijingDatabase) {
-
+    /**消息对话记录**/
+    val conversations: ConversationRepository= DefaultConversationRepository(db)
     /** 收藏内容、分段与向量。 */
     val contents: ContentRepository = DefaultContentRepository(db, RoomVectorSearchStore(db.vectorDao()))
 

@@ -27,4 +27,6 @@ internal interface ConversationDao {
 
     @Query("DELETE FROM conversation_table WHERE id = :id")
     suspend fun deleteById(id: Long)
+    @Query("Update conversation_table SET updated_at= :now WHERE id=:id")
+    suspend fun touch(id: Long,now: Long)
 }

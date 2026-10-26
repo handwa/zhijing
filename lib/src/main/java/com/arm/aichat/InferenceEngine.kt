@@ -38,6 +38,13 @@ interface InferenceEngine {
      */
     suspend fun setSystemPrompt(systemPrompt: String)
 
+
+    //清空对话状态，保留已经加载的模型，后面可以用[prefillMessage]重建历史
+    suspend fun resetConversation()
+
+    //把一条历史信息写入上下文，不触发采样，用于压缩后重建会话历史，调用前先调用[resetConversation]
+    suspend fun prefillMessage(role:String,content:String):Int
+
     /**
      * Sends a user prompt to the loaded model and returns a Flow of generated tokens.
      */

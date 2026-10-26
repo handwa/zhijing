@@ -44,9 +44,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
+import com.example.zhijing.chat.ContextBudget
+import com.example.zhijing.chat.ConversationManager
 import com.example.zhijing.model.ModelRegistry
 import com.example.zhijing.model.ModelSpec
 import com.example.zhijing.ui.theme.ZhiJingTheme
+import com.zhijing.data.ZhiJingData
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
@@ -93,6 +96,10 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     val spec = remember { ModelRegistry.forDevice(deviceRamGb(context)) }
     val listState = rememberLazyListState()
 
+    // 数据层入口；会话管理在模型加载完成后创建（需要实际上下文窗口）
+    val data = remember { ZhiJingData.get(context.applicationContext) }
+    var manager by remember { mutableStateOf<ConversationManager?>(null) }
+
     LaunchedEffect(Unit) {
         try {
             val model = withContext(Dispatchers.IO) { copyModelToPrivateStorage(context, spec) }
@@ -104,9 +111,23 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 if (state is InferenceEngine.State.Error) throw state.exception
             }
             engine.loadModel(model.absolutePath, spec.contextSize)
-            if (spec.systemPrompt.isNotBlank()) {
-                engine.setSystemPrompt(spec.systemPrompt)
-            }
+
+            // system prompt 由 ConversationManager.open() 内的 rebuildContext 统一灌入。
+            // 这里不再调 setSystemPrompt，否则会多一次随后被清空的 prefill。
+            // 模型就绪后才能拿到真实上下文窗口，此时再建预算和会话管理
+            val budget = ContextBudget.from(
+                window = engine.contextWindow(),
+                predictLength = spec.predictLength,
+                systemPrompt = spec.systemPrompt,
+            )
+            val created = ConversationManager(
+                conversations = data.conversations,
+                engine = engine,
+                budget = budget,
+                predictLength = spec.predictLength,
+            )
+            created.open(null, spec.systemPrompt)
+            manager = created
             modelReady = true
         } catch (e: Exception) {
             modelError = e.message ?: e.javaClass.simpleName
@@ -175,7 +196,8 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 Button(
                     onClick = {
                         val text = input.trim()
-                        if (text.isEmpty() || !modelReady || isGenerating) {
+                        val activeManager = manager
+                        if (text.isEmpty() || !modelReady || isGenerating || activeManager == null) {
                             return@Button
                         }
 
@@ -187,7 +209,7 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         scope.launch {
                             val buffer = StringBuilder()
                             try {
-                                engine.sendUserPrompt(text).collect { token ->
+                                activeManager.send(text).collect { token ->
                                     buffer.append(token)
                                     streamingText = buffer.toString()
                                 }

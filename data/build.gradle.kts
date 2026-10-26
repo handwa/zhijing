@@ -55,4 +55,5 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.1.5")
 
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    implementation(kotlin("test"))
 }

@@ -620,6 +620,65 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
     return result;
 }
 
+/*
+ * Clear conversation state, keeping the loaded model and KV cache allocation.
+ * Used when the host rebuilds history after context compression.
+ */
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativeResetConversation(
+        JNIEnv * /*env*/, jobject /*unused*/) {
+    reset_long_term_states(true);
+    reset_short_term_states();
+    LOGi("%s: conversation state cleared", __func__);
+}
+
+/*
+ * Append one message to the context without running the sampling loop.
+ */
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativePrefillMessage(
+        JNIEnv *env, jobject /*unused*/, jstring jrole, jstring jcontent) {
+    if (!g_context) {
+        LOGe("%s: context not ready", __func__);
+        return 1;
+    }
+
+    const auto *role_chars = env->GetStringUTFChars(jrole, nullptr);
+    const auto *content_chars = env->GetStringUTFChars(jcontent, nullptr);
+    std::string role_str(role_chars);
+    std::string content_str(content_chars);
+    env->ReleaseStringUTFChars(jrole, role_chars);
+    env->ReleaseStringUTFChars(jcontent, content_chars);
+
+    const auto formatted = chat_add_and_format(role_str, content_str);
+
+    const bool has_chat_template = common_chat_templates_was_explicit(g_chat_templates.get());
+    auto tokens = common_tokenize(g_context, formatted, has_chat_template, has_chat_template);
+
+    const int max_batch_size = g_n_ctx - OVERFLOW_HEADROOM;
+    if ((int) tokens.size() > max_batch_size) {
+        LOGw("%s: message too long, truncating %d -> %d tokens",
+             __func__, (int) tokens.size(), max_batch_size);
+        tokens.resize(max_batch_size);
+    }
+
+    if (decode_tokens_in_batches(g_context, g_batch, tokens, current_position)) {
+        LOGe("%s: decode failed", __func__);
+        return 2;
+    }
+
+    current_position += (int) tokens.size();
+
+    if (role_str == ROLE_SYSTEM) {
+        system_prompt_position = current_position;
+    }
+
+    LOGi("%s: prefilled %s, %d tokens, position now %d",
+         __func__, role_str.c_str(), (int) tokens.size(), current_position);
+    return 0;
+}
 
 extern "C"
 JNIEXPORT void JNICALL

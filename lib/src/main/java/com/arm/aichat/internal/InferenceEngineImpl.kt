@@ -110,7 +110,14 @@ internal class InferenceEngineImpl private constructor(
     private external fun processUserPrompt(userPrompt: String, predictLength: Int): Int
 
     @FastNative
+    private external fun nativeResetConversation()
+
+    @FastNative
+    private external fun nativePrefillMessage(role: String, content: String): Int
+
+    @FastNative
     private external fun generateNextToken(): String?
+
 
     @FastNative
     private external fun unload()
@@ -351,4 +358,27 @@ internal class InferenceEngineImpl private constructor(
         }
         llamaScope.cancel()
     }
+
+    override suspend fun resetConversation() {
+        withContext(llamaDispatcher) {
+            check(_state.value is InferenceEngine.State.ModelReady) {
+                "Cannot reset conversation in ${_state.value.javaClass.simpleName}!"
+            }
+            Log.i(TAG, "Resetting conversation...")
+            nativeResetConversation()
+            Log.i(TAG, "Conversation reset. position=${contextUsed()}")
+        }
+    }
+
+    override suspend fun prefillMessage(role: String, content: String): Int =
+        withContext(llamaDispatcher) {
+            check(_state.value is InferenceEngine.State.ModelReady) {
+                "Cannot prefill in ${_state.value.javaClass.simpleName}!"
+            }
+            nativePrefillMessage(role, content).also { result ->
+                if (result != 0) {
+                    Log.e(TAG, "Prefill failed for role=$role, code=$result")
+                }
+            }
+        }
 }
