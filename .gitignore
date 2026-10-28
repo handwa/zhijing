@@ -3,8 +3,23 @@
 /local.properties
 /.idea
 .DS_Store
-/build
+
+# 构建产物：每个模块都有自己的 build/，/build 只匹配根目录，这里用 build/ 匹配任意层级
+build/
+**/build/
 /captures
 .externalNativeBuild
 .cxx
 /cpp/build
+
+# Kotlin 增量编译缓存
+.kotlin/
+
+# 编辑器/工具产生的备份文件
+*.bak
+
+# 构建与调试日志
+*.log
+
+# 大体积模型资产不进仓库（约 2 GB），由开发者本地放置
+**/assets/model/*.gguf

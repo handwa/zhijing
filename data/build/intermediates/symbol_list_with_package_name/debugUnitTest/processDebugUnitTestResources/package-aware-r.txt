@@ -1,3 +1,0 @@
-com.zhijing.data.test
-style WhiteBackgroundDialogTheme
-style WhiteBackgroundTheme
