@@ -125,6 +125,19 @@ internal class InferenceEngineImpl private constructor(
     @FastNative
     private external fun shutdown()
 
+    // Embedding (RAG); see ai_chat.cpp
+    @FastNative
+    private external fun nativeLoadEmbeddingModel(modelPath: String): Int
+
+    @FastNative
+    private external fun nativeEmbedText(text: String): FloatArray?
+
+    @FastNative
+    private external fun nativeEmbeddingDim(): Int
+
+    @FastNative
+    private external fun nativeUnloadEmbeddingModel()
+
     private val _state =
         MutableStateFlow<InferenceEngine.State>(InferenceEngine.State.Uninitialized)
     override val state: StateFlow<InferenceEngine.State> = _state.asStateFlow()
@@ -250,6 +263,9 @@ internal class InferenceEngineImpl private constructor(
             "User prompt discarded due to: ${_state.value.javaClass.simpleName}"
         }
 
+        // A cancel request that arrived while idle must not kill this generation.
+        _cancelGeneration = false
+
         try {
             Log.i(TAG, "Sending user prompt...")
             _readyForSystemPrompt = false
@@ -271,20 +287,35 @@ internal class InferenceEngineImpl private constructor(
             }
             if (_cancelGeneration) {
                 Log.i(TAG, "Assistant generation aborted per requested.")
+                // Clear the flag so the next prompt is not cancelled immediately.
+                _cancelGeneration = false
             } else {
                 Log.i(TAG, "Assistant generation complete. Awaiting user prompt...")
             }
             _state.value = InferenceEngine.State.ModelReady
         } catch (e: CancellationException) {
             Log.i(TAG, "Assistant generation's flow collection cancelled.")
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.ModelReady
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error during generation!", e)
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.Error(e)
             throw e
         }
     }.flowOn(llamaDispatcher)
+
+    /**
+     * Requests the in-flight generation to stop after the current token.
+     * Non-blocking; the generation loop completes normally afterwards.
+     */
+    override fun requestCancelGeneration() {
+        if (_state.value is InferenceEngine.State.Generating) {
+            Log.i(TAG, "Cancel requested for in-flight generation.")
+        }
+        _cancelGeneration = true
+    }
 
     /**
      * Context window actually in effect for the loaded model (tokens).
@@ -381,4 +412,44 @@ internal class InferenceEngineImpl private constructor(
                 }
             }
         }
+
+    // --- Embedding (RAG) -----------------------------------------------------
+
+    override suspend fun loadEmbeddingModel(path: String) {
+        withContext(llamaDispatcher) {
+            check(_state.value is InferenceEngine.State.ModelReady) {
+                "Cannot load embedding model in ${_state.value.javaClass.simpleName}!"
+            }
+            File(path).let {
+                require(it.exists()) { "Embedding model not found: $path" }
+                require(it.isFile) { "Not a valid file: $path" }
+                require(it.canRead()) { "Cannot read: $path" }
+            }
+
+            Log.i(TAG, "Loading embedding model: $path")
+            val code = nativeLoadEmbeddingModel(path)
+            if (code != 0) {
+                throw IllegalStateException("Failed to load embedding model (code=$code)")
+            }
+            Log.i(TAG, "Embedding model ready, dim=${nativeEmbeddingDim()}")
+        }
+    }
+
+    override suspend fun embed(text: String): FloatArray? =
+        withContext(llamaDispatcher) {
+            // Embedding is optional: never throw here, callers fall back gracefully.
+            if (_state.value !is InferenceEngine.State.ModelReady) {
+                Log.w(TAG, "embed() skipped, engine is ${_state.value.javaClass.simpleName}")
+                return@withContext null
+            }
+            nativeEmbedText(text)
+        }
+
+    override fun embeddingDim(): Int = nativeEmbeddingDim()
+
+    override suspend fun unloadEmbeddingModel() {
+        withContext(llamaDispatcher) {
+            nativeUnloadEmbeddingModel()
+        }
+    }
 }

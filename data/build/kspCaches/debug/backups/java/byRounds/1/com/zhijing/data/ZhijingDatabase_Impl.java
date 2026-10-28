@@ -17,6 +17,10 @@ import com.zhijing.data.dao.ChunkDao;
 import com.zhijing.data.dao.ChunkDao_Impl;
 import com.zhijing.data.dao.ContentDao;
 import com.zhijing.data.dao.ContentDao_Impl;
+import com.zhijing.data.dao.ConversationDao;
+import com.zhijing.data.dao.ConversationDao_Impl;
+import com.zhijing.data.dao.MessageDao;
+import com.zhijing.data.dao.MessageDao_Impl;
 import com.zhijing.data.dao.ParseTaskDao;
 import com.zhijing.data.dao.ParseTaskDao_Impl;
 import com.zhijing.data.dao.PetStatusDao;
@@ -51,6 +55,10 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
 
   private volatile ChunkDao _chunkDao;
 
+  private volatile MessageDao _messageDao;
+
+  private volatile ConversationDao _conversationDao;
+
   private volatile VectorDao _vectorDao;
 
   private volatile AssociationDao _associationDao;
@@ -70,7 +78,7 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
   @Override
   @NonNull
   protected SupportSQLiteOpenHelper createOpenHelper(@NonNull final DatabaseConfiguration config) {
-    final SupportSQLiteOpenHelper.Callback _openCallback = new RoomOpenHelper(config, new RoomOpenHelper.Delegate(1) {
+    final SupportSQLiteOpenHelper.Callback _openCallback = new RoomOpenHelper(config, new RoomOpenHelper.Delegate(2) {
       @Override
       public void createAllTables(@NonNull final SupportSQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS `content_table` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `raw_text` TEXT NOT NULL, `source` TEXT, `import_time` INTEGER NOT NULL, `analysis_json` TEXT, `analysis_status` INTEGER NOT NULL DEFAULT 0, `embedding_vector` BLOB, `embedding_status` INTEGER NOT NULL DEFAULT 0, `remark` TEXT, `import_channel` TEXT NOT NULL)");
@@ -83,6 +91,10 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
         db.execSQL("CREATE TABLE IF NOT EXISTS `vector_table` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `owner_type` TEXT NOT NULL, `owner_id` INTEGER NOT NULL, `dim` INTEGER NOT NULL, `vector` BLOB NOT NULL, `model_id` TEXT NOT NULL, `created_time` INTEGER NOT NULL)");
         db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_vector_table_owner_type_owner_id` ON `vector_table` (`owner_type`, `owner_id`)");
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_vector_table_owner_type` ON `vector_table` (`owner_type`)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS `conversation_table` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `system_prompt` TEXT NOT NULL, `digest` TEXT, `digest_up_to_seq` INTEGER NOT NULL DEFAULT 0, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS `message_table` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `conversation_id` INTEGER NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `token_count` INTEGER NOT NULL, `seq` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, FOREIGN KEY(`conversation_id`) REFERENCES `conversation_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )");
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_message_table_conversation_id` ON `message_table` (`conversation_id`)");
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_message_table_conversation_id_seq` ON `message_table` (`conversation_id`, `seq`)");
         db.execSQL("CREATE TABLE IF NOT EXISTS `association_table` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source_content_id` INTEGER NOT NULL, `target_content_id` INTEGER NOT NULL, `similarity_score` REAL NOT NULL, `shared_topics` TEXT, `evidence_snippet` TEXT, `feedback` INTEGER NOT NULL DEFAULT 0, `weight` REAL NOT NULL DEFAULT 0, FOREIGN KEY(`source_content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`target_content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )");
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_association_table_source_content_id` ON `association_table` (`source_content_id`)");
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_association_table_target_content_id` ON `association_table` (`target_content_id`)");
@@ -100,7 +112,7 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_parse_task_table_content_id` ON `parse_task_table` (`content_id`)");
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_parse_task_table_status` ON `parse_task_table` (`status`)");
         db.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)");
-        db.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9f7d9e4b96c49a7447faeeab4f200d7b')");
+        db.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3470b4e76bf5e9b8b921a6274bf1113e')");
       }
 
       @Override
@@ -108,6 +120,8 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
         db.execSQL("DROP TABLE IF EXISTS `content_table`");
         db.execSQL("DROP TABLE IF EXISTS `chunk_table`");
         db.execSQL("DROP TABLE IF EXISTS `vector_table`");
+        db.execSQL("DROP TABLE IF EXISTS `conversation_table`");
+        db.execSQL("DROP TABLE IF EXISTS `message_table`");
         db.execSQL("DROP TABLE IF EXISTS `association_table`");
         db.execSQL("DROP TABLE IF EXISTS `topic_table`");
         db.execSQL("DROP TABLE IF EXISTS `stance_compare_table`");
@@ -220,6 +234,43 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
           return new RoomOpenHelper.ValidationResult(false, "vector_table(com.zhijing.data.entity.VectorEntity).\n"
                   + " Expected:\n" + _infoVectorTable + "\n"
                   + " Found:\n" + _existingVectorTable);
+        }
+        final HashMap<String, TableInfo.Column> _columnsConversationTable = new HashMap<String, TableInfo.Column>(7);
+        _columnsConversationTable.put("id", new TableInfo.Column("id", "INTEGER", true, 1, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("title", new TableInfo.Column("title", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("system_prompt", new TableInfo.Column("system_prompt", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("digest", new TableInfo.Column("digest", "TEXT", false, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("digest_up_to_seq", new TableInfo.Column("digest_up_to_seq", "INTEGER", true, 0, "0", TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("created_at", new TableInfo.Column("created_at", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsConversationTable.put("updated_at", new TableInfo.Column("updated_at", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        final HashSet<TableInfo.ForeignKey> _foreignKeysConversationTable = new HashSet<TableInfo.ForeignKey>(0);
+        final HashSet<TableInfo.Index> _indicesConversationTable = new HashSet<TableInfo.Index>(0);
+        final TableInfo _infoConversationTable = new TableInfo("conversation_table", _columnsConversationTable, _foreignKeysConversationTable, _indicesConversationTable);
+        final TableInfo _existingConversationTable = TableInfo.read(db, "conversation_table");
+        if (!_infoConversationTable.equals(_existingConversationTable)) {
+          return new RoomOpenHelper.ValidationResult(false, "conversation_table(com.zhijing.data.entity.ConversationEntity).\n"
+                  + " Expected:\n" + _infoConversationTable + "\n"
+                  + " Found:\n" + _existingConversationTable);
+        }
+        final HashMap<String, TableInfo.Column> _columnsMessageTable = new HashMap<String, TableInfo.Column>(7);
+        _columnsMessageTable.put("id", new TableInfo.Column("id", "INTEGER", true, 1, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("conversation_id", new TableInfo.Column("conversation_id", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("role", new TableInfo.Column("role", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("content", new TableInfo.Column("content", "TEXT", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("token_count", new TableInfo.Column("token_count", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("seq", new TableInfo.Column("seq", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        _columnsMessageTable.put("created_at", new TableInfo.Column("created_at", "INTEGER", true, 0, null, TableInfo.CREATED_FROM_ENTITY));
+        final HashSet<TableInfo.ForeignKey> _foreignKeysMessageTable = new HashSet<TableInfo.ForeignKey>(1);
+        _foreignKeysMessageTable.add(new TableInfo.ForeignKey("conversation_table", "CASCADE", "NO ACTION", Arrays.asList("conversation_id"), Arrays.asList("id")));
+        final HashSet<TableInfo.Index> _indicesMessageTable = new HashSet<TableInfo.Index>(2);
+        _indicesMessageTable.add(new TableInfo.Index("index_message_table_conversation_id", false, Arrays.asList("conversation_id"), Arrays.asList("ASC")));
+        _indicesMessageTable.add(new TableInfo.Index("index_message_table_conversation_id_seq", true, Arrays.asList("conversation_id", "seq"), Arrays.asList("ASC", "ASC")));
+        final TableInfo _infoMessageTable = new TableInfo("message_table", _columnsMessageTable, _foreignKeysMessageTable, _indicesMessageTable);
+        final TableInfo _existingMessageTable = TableInfo.read(db, "message_table");
+        if (!_infoMessageTable.equals(_existingMessageTable)) {
+          return new RoomOpenHelper.ValidationResult(false, "message_table(com.zhijing.data.entity.MessageEntity).\n"
+                  + " Expected:\n" + _infoMessageTable + "\n"
+                  + " Found:\n" + _existingMessageTable);
         }
         final HashMap<String, TableInfo.Column> _columnsAssociationTable = new HashMap<String, TableInfo.Column>(8);
         _columnsAssociationTable.put("id", new TableInfo.Column("id", "INTEGER", true, 1, null, TableInfo.CREATED_FROM_ENTITY));
@@ -351,7 +402,7 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
         }
         return new RoomOpenHelper.ValidationResult(true, null);
       }
-    }, "9f7d9e4b96c49a7447faeeab4f200d7b", "623e06c9c65e929eb649b3f6a1600885");
+    }, "3470b4e76bf5e9b8b921a6274bf1113e", "a3449f6d1221b388b3337702753ab70d");
     final SupportSQLiteOpenHelper.Configuration _sqliteConfig = SupportSQLiteOpenHelper.Configuration.builder(config.context).name(config.name).callback(_openCallback).build();
     final SupportSQLiteOpenHelper _helper = config.sqliteOpenHelperFactory.create(_sqliteConfig);
     return _helper;
@@ -362,7 +413,7 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
   protected InvalidationTracker createInvalidationTracker() {
     final HashMap<String, String> _shadowTablesMap = new HashMap<String, String>(0);
     final HashMap<String, Set<String>> _viewTables = new HashMap<String, Set<String>>(0);
-    return new InvalidationTracker(this, _shadowTablesMap, _viewTables, "content_table","chunk_table","vector_table","association_table","topic_table","stance_compare_table","wake_plan_table","qa_record_table","pet_status_table","parse_task_table");
+    return new InvalidationTracker(this, _shadowTablesMap, _viewTables, "content_table","chunk_table","vector_table","conversation_table","message_table","association_table","topic_table","stance_compare_table","wake_plan_table","qa_record_table","pet_status_table","parse_task_table");
   }
 
   @Override
@@ -381,6 +432,8 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
       _db.execSQL("DELETE FROM `content_table`");
       _db.execSQL("DELETE FROM `chunk_table`");
       _db.execSQL("DELETE FROM `vector_table`");
+      _db.execSQL("DELETE FROM `conversation_table`");
+      _db.execSQL("DELETE FROM `message_table`");
       _db.execSQL("DELETE FROM `association_table`");
       _db.execSQL("DELETE FROM `topic_table`");
       _db.execSQL("DELETE FROM `stance_compare_table`");
@@ -407,6 +460,8 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
     final HashMap<Class<?>, List<Class<?>>> _typeConvertersMap = new HashMap<Class<?>, List<Class<?>>>();
     _typeConvertersMap.put(ContentDao.class, ContentDao_Impl.getRequiredConverters());
     _typeConvertersMap.put(ChunkDao.class, ChunkDao_Impl.getRequiredConverters());
+    _typeConvertersMap.put(MessageDao.class, MessageDao_Impl.getRequiredConverters());
+    _typeConvertersMap.put(ConversationDao.class, ConversationDao_Impl.getRequiredConverters());
     _typeConvertersMap.put(VectorDao.class, VectorDao_Impl.getRequiredConverters());
     _typeConvertersMap.put(AssociationDao.class, AssociationDao_Impl.getRequiredConverters());
     _typeConvertersMap.put(TopicDao.class, TopicDao_Impl.getRequiredConverters());
@@ -457,6 +512,34 @@ public final class ZhijingDatabase_Impl extends ZhijingDatabase {
           _chunkDao = new ChunkDao_Impl(this);
         }
         return _chunkDao;
+      }
+    }
+  }
+
+  @Override
+  public MessageDao messageDao() {
+    if (_messageDao != null) {
+      return _messageDao;
+    } else {
+      synchronized(this) {
+        if(_messageDao == null) {
+          _messageDao = new MessageDao_Impl(this);
+        }
+        return _messageDao;
+      }
+    }
+  }
+
+  @Override
+  public ConversationDao conversationDao() {
+    if (_conversationDao != null) {
+      return _conversationDao;
+    } else {
+      synchronized(this) {
+        if(_conversationDao == null) {
+          _conversationDao = new ConversationDao_Impl(this);
+        }
+        return _conversationDao;
       }
     }
   }

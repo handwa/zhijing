@@ -1,8 +1,11 @@
 #include <android/log.h>
 #include <jni.h>
+#include <algorithm>
+#include <chrono>
 #include <iomanip>
 #include <cmath>
 #include <string>
+#include <vector>
 #include <unistd.h>
 #include <sampling.h>
 
@@ -25,8 +28,7 @@ static std::string join(const std::vector<T> &values, const std::string &delim) 
  * LLama resources: context, model, batch and sampler
  */
 constexpr int   N_THREADS_MIN           = 2;
-constexpr int   N_THREADS_MAX           = 4;
-constexpr int   N_THREADS_HEADROOM      = 2;
+constexpr int   N_THREADS_MAX           = 6;
 
 constexpr int   FALLBACK_CONTEXT_SIZE   = 4096;
 constexpr int   MIN_CONTEXT_SIZE        = 512;
@@ -42,6 +44,21 @@ static common_chat_templates_ptr          g_chat_templates;
 static common_sampler                   * g_sampler;
 
 /**
+ * Embedding side channel.
+ *
+ * A separate model + context that lives alongside the generative one, so RAG
+ * indexing never has to unload the chat model. BERT-style embedders are tiny
+ * (bge-small-zh is ~48 MB f16) so keeping both resident is cheap.
+ */
+constexpr int   EMBED_CONTEXT_SIZE      = 512;   // bge models are trained at 512
+constexpr int   EMBED_BATCH_SIZE        = 512;
+
+static llama_model                      * g_emb_model = nullptr;
+static llama_context                    * g_emb_context = nullptr;
+static llama_batch                        g_emb_batch;
+static int                                g_emb_dim = 0;
+
+/**
  * Runtime context size (tokens).
  *
  * This used to be a compile-time `constexpr`, which forced every model to run
@@ -54,6 +71,9 @@ static common_sampler                   * g_sampler;
  * only for logging.
  */
 static int g_n_ctx = FALLBACK_CONTEXT_SIZE;
+
+/** Decode steps since load; used to throttle per-step timing logs. */
+static int g_decode_counter = 0;
 
 /**
  * Long-term conversation state.
@@ -84,6 +104,11 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
     aichat_last_native_log.clear();
     llama_model_params model_params = llama_model_default_params();
 
+    // Pin weights in RAM. With plain mmap the kernel may evict weight pages
+    // under memory pressure, turning every decode step into disk IO; locking
+    // trades that for a higher chance of the system killing other apps instead.
+    model_params.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
     LOGd("%s: Loading model from: \n%s\n", __func__, model_path);
 
@@ -108,12 +133,14 @@ static llama_context *init_context(llama_model *model, const int n_ctx) {
         return nullptr;
     }
 
-    // Multi-threading setup
-    const int n_threads = std::max(N_THREADS_MIN, std::min(N_THREADS_MAX,
-                                                     (int) sysconf(_SC_NPROCESSORS_ONLN) -
-                                                     N_THREADS_HEADROOM));
-    LOGi("%s: Using %d threads", __func__, n_threads);
-
+    // Multi-threading setup.
+    // Decode is memory-bandwidth bound, so threads past the core count only add
+    // contention. Use every logical core available, capped at N_THREADS_MAX
+    // (which stays below the core count of big.LITTLE phones, where small cores
+    // would otherwise gate each step).
+    const int cores = (int) sysconf(_SC_NPROCESSORS_ONLN);
+    const int n_threads = std::max(N_THREADS_MIN, std::min(N_THREADS_MAX, cores));
+    LOGi("%s: Using %d threads (%d logical cores available)", __func__, n_threads, cores);
     // Context parameters setup
     llama_context_params ctx_params = llama_context_default_params();
     const int trained_context_size = llama_model_n_ctx_train(model);
@@ -126,10 +153,28 @@ static llama_context *init_context(llama_model *model, const int n_ctx) {
     ctx_params.n_ubatch = BATCH_SIZE;
     ctx_params.n_threads = n_threads;
     ctx_params.n_threads_batch = n_threads;
+
+    // Quantize the KV cache to Q8_0: halves its footprint (288 -> 144 MiB at
+    // 8192 ctx) and makes memory operations such as clearing proportionally
+    // cheaper. Q8_0 is the safest quantization for CPU backends; Q4_0 would
+    // need flash attention and loses noticeably more quality.
+    ctx_params.type_k = GGML_TYPE_Q8_0;
+    ctx_params.type_v = GGML_TYPE_Q8_0;
+
     auto *context = llama_init_from_model(model, ctx_params);
     if (context == nullptr) {
         LOGe("%s: llama_new_context_with_model() returned null)", __func__);
+        return nullptr;
     }
+
+    // Log what actually took effect; requested versus effective values can
+    // differ (e.g. n_ubatch is clamped by the model's UBatch size).
+    LOGi("%s: effective n_batch=%u n_ubatch=%u n_threads=%u n_threads_batch=%u",
+         __func__,
+         (unsigned) llama_n_batch(context),
+         (unsigned) llama_n_ubatch(context),
+         (unsigned) llama_n_threads(context),
+         (unsigned) llama_n_threads_batch(context));
     return context;
 }
 
@@ -151,6 +196,53 @@ static common_sampler *new_sampler(float temp) {
     common_params_sampling sparams;
     sparams.temp = temp;
     return common_sampler_init(g_model, sparams);
+}
+
+/**
+ * Run one tiny decode so the first real request is not the one that pays for
+ * first-touch costs.
+ *
+ * The first llama_decode after loading takes 20s+ on a phone/emulator: mmap'd
+ * weights get faulted in, ggml builds its compute graph for the shape, and the
+ * worker threads start up. Doing that here moves the cost into the "loading
+ * model" phase the user already expects to wait for.
+ *
+ * Context is cleared afterwards, so warmup leaves no trace in the conversation.
+ */
+static void warmup_context(llama_context *context, llama_batch &batch) {
+    if (!context) return;
+
+    const auto t0 = std::chrono::steady_clock::now();
+
+    // Feed a short prompt-shaped batch of harmless tokens. We do not care about
+    // the output, only that the kernels actually execute. Prefer the model's BOS;
+    // Qwen-family vocabularies may not define one, so fall back to any low id.
+    const llama_vocab *vocab = llama_model_get_vocab(g_model);
+    llama_token warm = llama_vocab_bos(vocab);
+    if (warm == LLAMA_TOKEN_NULL || warm < 0) {
+        warm = llama_vocab_eos(vocab);
+    }
+    if (warm == LLAMA_TOKEN_NULL || warm < 0) {
+        warm = 1;   // token ids below the special-token range are always plain text
+    }
+
+    std::vector<llama_token> tokens(8, warm);
+
+    common_batch_clear(batch);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        common_batch_add(batch, tokens[i], (llama_pos) i, {0}, i == tokens.size() - 1);
+    }
+
+    if (llama_decode(context, batch) != 0) {
+        LOGw("%s: warmup decode failed, continuing anyway", __func__);
+    } else {
+        const auto ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t0).count();
+        LOGi("%s: warmup decode took %.0f ms", __func__, ms);
+    }
+
+    // Undo any state the warmup introduced.
+    llama_memory_seq_rm(llama_get_memory(context), 0, 0, (llama_pos) tokens.size());
 }
 
 extern "C"
@@ -179,6 +271,11 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(
     g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
     g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP);
+    g_decode_counter = 0;
+
+    // Pay the first-touch cost now instead of on the user's first message.
+    warmup_context(g_context, g_batch);
+
     return 0;
 }
 
@@ -339,12 +436,21 @@ static std::vector<common_chat_msg> chat_msgs;
 // system_prompt_position / current_position are declared near the top of this file.
 
 static void reset_long_term_states(const bool clear_kv_cache = true) {
+    // Remember how much was actually written before zeroing the cursors.
+    // llama_memory_clear() walks every cell of the whole 8192-slot cache
+    // (36 layers x 8192 x K/V), which costs 10+ seconds on a phone even when
+    // almost nothing was used. Removing only the used range is proportional
+    // to real work and is a no-op for a fresh conversation.
+    const llama_pos used = current_position;
+
     chat_msgs.clear();
     system_prompt_position = 0;
     current_position = 0;
 
-    if (clear_kv_cache)
-        llama_memory_clear(llama_get_memory(g_context), false);
+    if (clear_kv_cache && used > 0) {
+        llama_memory_seq_rm(llama_get_memory(g_context), 0, 0, used);
+        LOGi("%s: dropped KV range [0, %d)", __func__, used);
+    }
 }
 
 /**
@@ -586,9 +692,20 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
     // Populate the batch with new token, then decode
     common_batch_clear(g_batch);
     common_batch_add(g_batch, new_token_id, current_position, {0}, true);
-    if (llama_decode(g_context, g_batch) != 0) {
+
+    // Wall-clock timing for this decode step, sampled to keep log noise low.
+    const auto t0 = std::chrono::steady_clock::now();
+    const int decode_result = llama_decode(g_context, g_batch);
+    const double decode_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0).count();
+
+    if (decode_result != 0) {
         LOGe("%s: llama_decode() failed for generated token", __func__);
         return nullptr;
+    }
+
+    if (++g_decode_counter % 16 == 0) {
+        LOGi("%s: decode step took %.1f ms", __func__, decode_ms);
     }
 
     // Update position
@@ -654,8 +771,11 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_nativePrefillMessage(
 
     const auto formatted = chat_add_and_format(role_str, content_str);
 
+    const auto t_tokenize_start = std::chrono::steady_clock::now();
     const bool has_chat_template = common_chat_templates_was_explicit(g_chat_templates.get());
     auto tokens = common_tokenize(g_context, formatted, has_chat_template, has_chat_template);
+    const double tokenize_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t_tokenize_start).count();
 
     const int max_batch_size = g_n_ctx - OVERFLOW_HEADROOM;
     if ((int) tokens.size() > max_batch_size) {
@@ -664,7 +784,12 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_nativePrefillMessage(
         tokens.resize(max_batch_size);
     }
 
-    if (decode_tokens_in_batches(g_context, g_batch, tokens, current_position)) {
+    const auto t_decode_start = std::chrono::steady_clock::now();
+    const int decode_rc = decode_tokens_in_batches(g_context, g_batch, tokens, current_position);
+    const double decode_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t_decode_start).count();
+
+    if (decode_rc) {
         LOGe("%s: decode failed", __func__);
         return 2;
     }
@@ -675,8 +800,9 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_nativePrefillMessage(
         system_prompt_position = current_position;
     }
 
-    LOGi("%s: prefilled %s, %d tokens, position now %d",
-         __func__, role_str.c_str(), (int) tokens.size(), current_position);
+    LOGi("%s: prefilled %s, %d tokens (tokenize %.1f ms, decode %.1f ms), position now %d",
+         __func__, role_str.c_str(), (int) tokens.size(),
+         tokenize_ms, decode_ms, current_position);
     return 0;
 }
 
@@ -699,4 +825,159 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_arm_aichat_internal_InferenceEngineImpl_shutdown(JNIEnv *, jobject /*unused*/) {
     llama_backend_free();
+}
+
+// ============================================================================
+// Embedding model: separate from the generative one so both can stay resident.
+// ============================================================================
+
+/*
+ * Load a BERT-style embedding model (e.g. bge-small-zh-v1.5) into its own
+ * context. Returns 0 on success.
+ */
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativeLoadEmbeddingModel(
+        JNIEnv *env, jobject /*unused*/, jstring jmodel_path) {
+    if (g_emb_context) {
+        LOGe("%s: embedding model already loaded", __func__);
+        return 3;
+    }
+
+    llama_model_params model_params = llama_model_default_params();
+    model_params.n_gpu_layers = 0;
+
+    const auto *path = env->GetStringUTFChars(jmodel_path, nullptr);
+    LOGi("%s: loading embedding model from: %s", __func__, path);
+    llama_model *model = llama_model_load_from_file(path, model_params);
+    env->ReleaseStringUTFChars(jmodel_path, path);
+
+    if (!model) {
+        LOGe("%s: failed to load embedding model", __func__);
+        return 1;
+    }
+
+    llama_context_params ctx_params = llama_context_default_params();
+    ctx_params.n_ctx        = EMBED_CONTEXT_SIZE;
+    ctx_params.n_batch      = EMBED_BATCH_SIZE;
+    ctx_params.n_ubatch     = EMBED_BATCH_SIZE;
+    ctx_params.n_threads    = std::max(1, std::min(4, (int) sysconf(_SC_NPROCESSORS_ONLN)));
+    ctx_params.n_threads_batch = ctx_params.n_threads;
+    // BERT embedders need causal attention off and pooled (CLS) embeddings on.
+    ctx_params.embeddings   = true;
+    ctx_params.attention_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
+    ctx_params.pooling_type = LLAMA_POOLING_TYPE_CLS;
+
+    llama_context *context = llama_init_from_model(model, ctx_params);
+    if (!context) {
+        LOGe("%s: failed to create embedding context", __func__);
+        llama_model_free(model);
+        return 2;
+    }
+
+    g_emb_model   = model;
+    g_emb_context = context;
+    g_emb_batch   = llama_batch_init(EMBED_BATCH_SIZE, 0, 1);
+    g_emb_dim     = (int) llama_model_n_embd(model);
+
+    LOGi("%s: embedding model ready, dim=%d, n_ctx=%d",
+         __func__, g_emb_dim, llama_n_ctx(context));
+    return 0;
+}
+
+/*
+ * Embed one text, returning a normalized float[n_embd] vector, or null on error.
+ */
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativeEmbedText(
+        JNIEnv *env, jobject /*unused*/, jstring jtext) {
+    if (!g_emb_context || !g_emb_model) {
+        LOGe("%s: embedding model not loaded", __func__);
+        return nullptr;
+    }
+
+    const auto *text = env->GetStringUTFChars(jtext, nullptr);
+    const std::string input(text);
+    env->ReleaseStringUTFChars(jtext, text);
+
+    if (input.empty()) {
+        LOGe("%s: empty input", __func__);
+        return nullptr;
+    }
+
+    // Fresh state per call; the embedder has no cross-call memory.
+    llama_memory_clear(llama_get_memory(g_emb_context), true);
+
+    auto tokens = common_tokenize(g_emb_context, input, true, true);
+    if (tokens.empty()) {
+        LOGe("%s: tokenization produced nothing", __func__);
+        return nullptr;
+    }
+    const int max_tokens = EMBED_CONTEXT_SIZE - 2;
+    if ((int) tokens.size() > max_tokens) {
+        LOGw("%s: truncating %d -> %d tokens", __func__, (int) tokens.size(), max_tokens);
+        tokens.resize(max_tokens);
+    }
+
+    common_batch_clear(g_emb_batch);
+    for (size_t i = 0; i < tokens.size(); i++) {
+        // logits=false: we only need the pooled embedding, not per-token logits.
+        common_batch_add(g_emb_batch, tokens[i], (llama_pos) i, {0}, false);
+    }
+
+    if (llama_decode(g_emb_context, g_emb_batch) != 0) {
+        LOGe("%s: llama_decode failed", __func__);
+        return nullptr;
+    }
+
+    const float *embd = llama_get_embeddings_seq(g_emb_context, 0);
+    if (!embd) {
+        // Fall back to the single-sequence accessor on backends that do not
+        // expose pooled results by seq id.
+        embd = llama_get_embeddings(g_emb_context);
+    }
+    if (!embd) {
+        LOGe("%s: no embeddings returned", __func__);
+        return nullptr;
+    }
+
+    // L2 normalize so cosine similarity degrades to a dot product.
+    std::vector<float> out(embd, embd + g_emb_dim);
+    double norm = 0.0;
+    for (float v : out) norm += (double) v * v;
+    norm = std::sqrt(norm);
+    if (norm > 1e-12) {
+        const float inv = (float) (1.0 / norm);
+        for (float &v : out) v *= inv;
+    }
+
+    jfloatArray result = env->NewFloatArray(g_emb_dim);
+    if (result) {
+        env->SetFloatArrayRegion(result, 0, g_emb_dim, out.data());
+    }
+    return result;
+}
+
+/** Embedding vector dimension; 0 when no model is loaded. */
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativeEmbeddingDim(JNIEnv *, jobject /*unused*/) {
+    return (jint) g_emb_dim;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_arm_aichat_internal_InferenceEngineImpl_nativeUnloadEmbeddingModel(JNIEnv *, jobject /*unused*/) {
+    if (g_emb_context) {
+        llama_batch_free(g_emb_batch);
+        llama_free(g_emb_context);
+        g_emb_context = nullptr;
+    }
+    if (g_emb_model) {
+        llama_model_free(g_emb_model);
+        g_emb_model = nullptr;
+    }
+    g_emb_dim = 0;
+    LOGi("%s: embedding model unloaded", __func__);
 }

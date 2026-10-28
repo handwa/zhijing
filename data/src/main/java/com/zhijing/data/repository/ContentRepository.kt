@@ -90,6 +90,23 @@ interface ContentRepository {
     suspend fun updateRemark(contentId: Long, remark: String?)
 
     /**
+     * 批量写入分段级向量（RAG 检索用）。
+     *
+     * `vector_table` 是多态 owner，无法建外键，所以这里：
+     * 1. 先删该内容已有的分段向量，避免重新索引后残留旧段；
+     * 2. 再按传入顺序写入新向量，与 `chunk_table.chunk_index` 一一对应。
+     *
+     * @param vectors 与 [getChunks] 返回顺序一致；长度为 0 时只做清理。
+     * @param modelId 产出这些向量的嵌入模型标识，换模型后可据此判断失效。
+     */
+    suspend fun replaceChunkEmbeddings(
+        contentId: Long,
+        vectors: List<FloatArray>,
+        modelId: String,
+        now: Long = System.currentTimeMillis()
+    )
+
+    /**
      * 删除一条内容及其全部派生数据。
      *
      * 说明书 6.3/7.3：删除的数据要连同向量、关联、对照、问答记录一起删干净。
@@ -226,6 +243,43 @@ internal class DefaultContentRepository(
 
     override suspend fun updateRemark(contentId: Long, remark: String?) {
         contentDao.updateRemark(contentId, remark)
+    }
+
+    override suspend fun replaceChunkEmbeddings(
+        contentId: Long,
+        vectors: List<FloatArray>,
+        modelId: String,
+        now: Long,
+    ) {
+        db.withTransaction {
+            val chunkIds = chunkDao.findIdsByContentId(contentId)
+
+            // 先清掉旧的分段向量，防止重新索引后段数变少时残留脏数据
+            if (chunkIds.isNotEmpty()) {
+                vectorDao.deleteByOwnerIds(VectorOwnerType.CHUNK, chunkIds)
+            }
+
+            if (chunkIds.size != vectors.size) {
+                // 段与向量必须一一对应，否则检索会张冠李戴
+                throw IllegalArgumentException(
+                    "chunk count (${chunkIds.size}) != vector count (${vectors.size}) for content $contentId"
+                )
+            }
+
+            chunkIds.forEachIndexed { index, chunkId ->
+                val bytes = VectorCodec.encode(vectors[index])
+                vectorDao.upsert(
+                    VectorEntity(
+                        ownerType = VectorOwnerType.CHUNK,
+                        ownerId = chunkId,
+                        dim = VectorCodec.DIM,
+                        vector = bytes,
+                        modelId = modelId,
+                        createdTime = now,
+                    )
+                )
+            }
+        }
     }
 
     override suspend fun deleteContent(contentId: Long) {

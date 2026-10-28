@@ -16,6 +16,7 @@ public interface ConversationRepository {
     suspend fun messagesAfter(conversationId: Long, afterSeq: Int): List<MessageSnapshot>
     suspend fun allMessages(conversationId: Long): List<MessageSnapshot>
     suspend fun updateDigest(conversationId: Long, digest: String, upToSeq: Int)
+    suspend fun renameConversation(conversationId: Long, title: String)
 }
 
 public data class ConversationEntitySnapshot(
@@ -106,6 +107,10 @@ internal class DefaultConversationRepository(
 
     override suspend fun updateDigest(conversationId: Long, digest: String, upToSeq: Int) {
         conversationDao.updateDigest(conversationId, digest, upToSeq, System.currentTimeMillis())
+    }
+
+    override suspend fun renameConversation(conversationId: Long, title: String) {
+        conversationDao.updateTitle(conversationId, title, System.currentTimeMillis())
     }
 }
 
