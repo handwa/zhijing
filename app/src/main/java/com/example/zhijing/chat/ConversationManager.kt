@@ -9,23 +9,33 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * 会话编排：把「归档区（数据库）→ 工作记忆（内存）→ KV cache（引擎）」串起来。
+ * 会话编排：把「归档区（数据库）→ 工作记忆（内存）→ 引擎上下文」串起来。
  *
  * 职责边界：
  * - 归档：每条消息都落库，永不丢失
  * - 工作记忆：[working]，只保留当前上下文窗口放得下的部分
  * - 压缩：超预算时丢弃最老的轮次，用规则抽取成提要
- * - 重建：压缩后清空 KV cache，按 system → 提要 → 历史 重新灌入
+ * - 重建：压缩后清空上下文，按 system → 提要 → 历史 重新灌入
+ * - 路由：端侧 / 云端由 [RoutePolicy] 决定；两端共用同一套编排逻辑
+ *
+ * 端侧引擎为 [ChatEngine]（由 [LocalChatEngine] 适配 llama.cpp），云端引擎为
+ * [com.example.zhijing.cloud.RemoteInferenceEngine]；两者行为差异（云端不需要
+ * prefill、没有嵌入能力）都在各自实现里吸收，本类不做特判。
  */
 class ConversationManager(
     private val conversations: ConversationRepository,
-    private val engine: InferenceEngine,
+    /** 端侧引擎；null 表示未加载（此时只有云端可走）。 */
+    private val local: ChatEngine?,
+    /** 云端引擎；null 表示用户没有配置云服务。 */
+    private val cloud: ChatEngine?,
     private val budget: ContextBudget,
     private val predictLength: Int,
-    /** 本地收藏检索数据源；为 null 时不带资料。 */
+    /** 本地下收藏检索数据源；为 null 时不带资料。 */
     private val contents: ContentRepository? = null,
     /** 检索策略；与 [contents] 同时提供才会启用。 */
     private val retrieval: RetrievalConfig? = null,
+    /** 路由策略；默认纯端侧，云端需显式选择。 */
+    private val routePolicy: RoutePolicy = FixedRoutePolicy(RoutePolicy.RouteMode.LOCAL_ONLY),
 ) {
     private val compressor = ContextCompressor(budget)
 
@@ -37,16 +47,34 @@ class ConversationManager(
     /**
      * 上下文尚未按当前会话重建。
      *
-     * 切换/新建会话只清空 KV cache 并读好历史，真正的 prefill 推迟到下一次
+     * 切换/新建会话只清空上下文并读好历史，真正的 prefill 推迟到下一次
      * [send]，这样切换是瞬时的，卡顿挪到用户本来就在等待的生成阶段。
      */
     private var pendingRebuild = false
 
     /**
-     * 打开已有会话，或新建一个。
-     * 从归档区恢复工作记忆，但**不**立刻重建 KV cache（懒加载）。
+     * 最近一次完成上下文重建的引擎。
      *
-     * 切换是瞬时的；上下文在下次 [send] 时按需重建。
+     * 上下文状态是**每个引擎各自持有**的（端侧是 KV cache，云端是 messages 列表）。
+     * 路由在两次提问之间可能换引擎（用户切换模式、或云端失败回退），一旦换了，
+     * 新引擎的上下文还是旧的，必须先重建再生成，否则会答非所问。
+     */
+    private var syncedEngine: ChatEngine? = null
+
+    /** 本次会话是否发生过云端回退（用于提示用户"已自动切换端侧"）。 */
+    var lastFallbackReason: String? = null
+        private set
+
+    /**
+     * 最近一次回答实际走了哪条路，供 UI 展示「端侧/云端」标记。
+     * null 表示还没有生成过。
+     */
+    var lastRoute: RoutePolicy.RouteMode? = null
+        private set
+
+    /**
+     * 打开已有会话，或新建一个。
+     * 从归档区恢复工作记忆，但**不**立刻重建上下文（懒加载）。
      *
      * @param existingId 已有会话 ID；传 null 表示新建
      * @return 实际使用的会话 ID
@@ -68,8 +96,13 @@ class ConversationManager(
             Turn(roleOf(it.role), it.content, it.tokenCount, it.seq)
         }.toMutableList()
 
-        // 清掉上一个会话的上下文，避免串味；具体的 prefill 推迟到 send
-        engine.resetConversation()
+        // 清掉上一个会话的上下文，避免串味；具体 prefill 推迟到 send。
+        // 两端都清：云端历史也要跟着会话切换，否则会把别的会话内容发出去。
+        local?.resetConversation()
+        cloud?.resetConversation()
+        syncedEngine = null
+        lastRoute = null
+        lastFallbackReason = null
         pendingRebuild = true
         return convId
     }
@@ -111,34 +144,53 @@ class ConversationManager(
     /**
      * 发送一条用户消息，流式返回助手回复。
      *
-     * 流程：补齐上下文 → 写归档 → 按需压缩 → 生成 → 写归档
+     * 流程：选路 → 补齐上下文 → 写归档 → 按需压缩 → 生成 → 写归档
      *
      * 关键约束：上下文里只能出现一次用户消息。rebuildContext 灌的是 [working]
-     * 的历史，而 sendUserPrompt 会自己把本次消息喂进 KV cache，所以本次消息
+     * 的历史，而 sendUserPrompt 会自己把本次消息喂进引擎，所以本次消息
      * 绝不能同时存在于 [working] 的 prefill 内容和 sendUserPrompt 的入参里。
+     *
+     * 路由规则：
+     * - 云端可用且策略选云端 → 先试云端；云端失败且端侧就绪 → 自动回退端侧
+     * - 云端不可用或策略为纯端侧 → 走端侧（与离线版行为完全一致）
      */
     fun send(text: String): Flow<String> = flow {
         val userTokens = estimateTokens(text)
 
-        // 懒加载：把切换会话时跳过的 prefill 补上（此时 working 还不含本次消息）
-        if (pendingRebuild) {
+        // 选路。云端可用 = 已配置且当前策略允许；端侧可用 = 引擎就绪。
+        val hasCloud = cloud != null && routePolicy.route(hasCloud = true) != RoutePolicy.RouteMode.LOCAL_ONLY
+        val mode = if (cloud == null) RoutePolicy.RouteMode.LOCAL_ONLY else routePolicy.route(hasCloud = true)
+        val primary: ChatEngine? = when (mode) {
+            RoutePolicy.RouteMode.LOCAL_ONLY -> local
+            RoutePolicy.RouteMode.CLOUD_FIRST, RoutePolicy.RouteMode.CLOUD_ONLY -> cloud
+        }
+        val active = primary ?: local ?: cloud
+            ?: error("没有可用的推理引擎：端侧未加载，云端未配置")
+
+        lastFallbackReason = null
+
+        // 懒加载：把切换会话时跳过的 prefill 补上（此时 working 还不含本次消息）。
+        // 另外：如果这次要用的引擎和上次重建过的不是同一个（路由切换导致），
+        // 它的上下文同样是过期的，必须一并重建。
+        val engineChanged = syncedEngine != null && syncedEngine !== active
+        if (pendingRebuild || engineChanged) {
             val t0 = System.currentTimeMillis()
-            rebuildContext()
+            rebuildContext(active)
             Log.i(
                 "ConversationManager",
-                "lazy rebuild: ${working.size} turns, digest=${digest.length} chars, " +
+                "rebuild on ${engineName(active)} (pending=$pendingRebuild, switched=$engineChanged): " +
+                    "${working.size} turns, digest=${digest.length} chars, " +
                     "took ${System.currentTimeMillis() - t0} ms",
             )
             pendingRebuild = false
         }
-
         // 先落库（拿回真实 seq），再动内存；即使后面出错，用户消息也不会丢
         val userSeq = conversations.appendMessage(conversationId, "user", text, userTokens)
         maybeRenameAfterFirstMessage(text)
 
         // 压缩基于"加入本条之前的窗口"判断，避免把本条灌两遍；
         // 需要重建时，重建内容同样不含本条，本条由 sendUserPrompt 补上。
-        val compressed = compressIfNeeded()
+        val compressed = compressIfNeeded(active)
         if (compressed) {
             Log.i("ConversationManager", "compressed: kept ${working.size} turns")
         }
@@ -150,10 +202,37 @@ class ConversationManager(
         val prompt = buildAugmentedPrompt(text)
 
         val buffer = StringBuilder()
+        var running = active
         try {
-            engine.sendUserPrompt(prompt, predictLength).collect { token ->
-                buffer.append(token)
-                emit(token)
+            try {
+                running.sendUserPrompt(prompt, predictLength).collect { token ->
+                    buffer.append(token)
+                    emit(token)
+                }
+                lastRoute = if (running === cloud) RoutePolicy.RouteMode.CLOUD_FIRST else RoutePolicy.RouteMode.LOCAL_ONLY
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 云端失败 → 端侧兜底。只有 CLOUD_FIRST 才回退：用户显式选择
+                // CLOUD_ONLY 时应当看到真实错误，而不是被悄悄换成本地结果。
+                val canFallback = running === cloud &&
+                    mode == RoutePolicy.RouteMode.CLOUD_FIRST &&
+                    local != null && local.isReady && buffer.isEmpty()
+                if (!canFallback) throw e
+
+                Log.w("ConversationManager", "cloud failed, falling back to local: ${e.message}")
+                lastFallbackReason = e.message
+                lastRoute = RoutePolicy.RouteMode.LOCAL_ONLY
+                running = local
+
+                // 回退前必须让本地上下文追上：若之前几次都走了云端，本地引擎
+                // 还停在旧状态，直接生成会答非所问。重建用当前 working（已含本轮提问
+                // 之外的完整历史），prompt 由 sendUserPrompt 单独补上。
+                rebuildContext(local)
+                local.sendUserPrompt(prompt, predictLength).collect { token ->
+                    buffer.append(token)
+                    emit(token)
+                }
             }
         } finally {
             val answer = buffer.toString()
@@ -165,6 +244,9 @@ class ConversationManager(
         }
     }
 
+    private fun engineName(engine: ChatEngine): String =
+        if (engine === cloud) "cloud" else "local"
+
     /**
      * 检索本地收藏并把命中片段拼成带资料的提问文本。
      *
@@ -175,11 +257,13 @@ class ConversationManager(
         val store = contents ?: return query
         val config = retrieval ?: return query
 
-        // 依赖注入的检索器缺失或嵌入模型未加载时静默降级
-        if (engine.embeddingDim() == 0) return query
+        // 检索**始终**在端侧完成：向量化必须用本地嵌入模型，即使本次回答走云端。
+        // 这样切到云端时 RAG 依然可用，同时也意味着检索结果只在本机产生。
+        val embeddingEngine = local ?: cloud ?: return query
+        if (embeddingEngine.embeddingDim() == 0) return query
 
         return try {
-            val queryVector = engine.embed(query) ?: run {
+            val queryVector = embeddingEngine.embed(query) ?: run {
                 Log.w("ConversationManager", "RAG: embed(query) returned null, skip")
                 return query
             }
@@ -238,7 +322,7 @@ class ConversationManager(
      *
      * @return true 表示确实发生了压缩与重建
      */
-    private suspend fun compressIfNeeded(): Boolean {
+    private suspend fun compressIfNeeded(engine: ChatEngine): Boolean {
         if (working.sumOf { it.tokens } <= budget.history) return false
 
         val kept = compressor.trim(working)
@@ -258,16 +342,18 @@ class ConversationManager(
         val boundary = kept.firstOrNull()?.seq?.minus(1) ?: dropped.lastOrNull()?.seq ?: 0
         conversations.updateDigest(conversationId, digest, boundary)
 
-        rebuildContext()
+        rebuildContext(engine)
         return true
     }
 
     /**
-     * 清空 KV cache，按 system → 提要 → 历史 的顺序重新灌入。
+     * 清空引擎上下文，按 system → 提要 → 历史 的顺序重新灌入。
      *
      * 调用 prefillMessage 而不是 sendUserPrompt，因为这些历史消息不需要重新生成。
+     * 对云端引擎而言 prefill 只是累积 messages，不发网络请求（见
+     * [com.example.zhijing.cloud.RemoteInferenceEngine]），因此两端共用这段逻辑。
      */
-    private suspend fun rebuildContext() {
+    private suspend fun rebuildContext(engine: ChatEngine) {
         engine.resetConversation()
         engine.prefillMessage("system", systemPrompt)
         if (digest.isNotEmpty()) {
@@ -283,6 +369,7 @@ class ConversationManager(
                 turn.content,
             )
         }
+        syncedEngine = engine
     }
 
     private fun roleOf(role: String): Role = when (role) {

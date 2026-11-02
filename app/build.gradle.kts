@@ -37,6 +37,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        // ConversationManager 里有 android.util.Log 调用；JVM 单测中它是空桩，
+        // 开启后返回默认值而不是抛 "not mocked"，让纯逻辑可以单测覆盖。
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

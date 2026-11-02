@@ -48,8 +48,12 @@ import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
@@ -58,6 +62,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,16 +71,29 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import com.arm.aichat.cancelGenerationAndAwaitReady
+import com.example.zhijing.chat.ChatEngine
 import com.example.zhijing.chat.ContextBudget
 import com.example.zhijing.chat.ConversationManager
 import com.example.zhijing.chat.DocumentParsers
+import com.example.zhijing.chat.FixedRoutePolicy
+import com.example.zhijing.chat.LocalChatEngine
 import com.example.zhijing.chat.RagIndexer
 import com.example.zhijing.chat.RetrievalConfig
+import com.example.zhijing.chat.RoutePolicy
+import com.example.zhijing.cloud.CloudConfigStore
+import com.example.zhijing.cloud.CloudException
+import com.example.zhijing.cloud.CloudMessage
+import com.example.zhijing.cloud.CloudProvider
+import com.example.zhijing.cloud.RemoteChatClient
+import com.example.zhijing.cloud.RemoteInferenceEngine
 import com.zhijing.data.repository.ConversationEntitySnapshot
 import com.example.zhijing.model.ModelRegistry
 import com.example.zhijing.model.ModelSpec
@@ -105,6 +124,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * 云服务商的运行期选择器。
+ *
+ * MainActivity 把它作为不可变快照交给 ConversationManager；用户在设置页改动后
+ * 通过新建的 manager 生效（见 [ChatScreen] 里重建 ConversationManager 的分支）。
+ * 这里用单一可变持有者，避免把"当前服务商"散落到各个调用点。
+ */
+private class CloudRuntime {
+    @Volatile
+    var provider: CloudProvider? = null
+    @Volatile
+    var engine: RemoteInferenceEngine? = null
+
+    /** 当前用户选择的路由模式。默认纯端侧，与离线版完全一致。 */
+    @Volatile
+    var routeMode: RoutePolicy.RouteMode = RoutePolicy.RouteMode.LOCAL_ONLY
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(modifier: Modifier = Modifier) {
@@ -129,6 +166,19 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     // 数据层入口；会话管理在模型加载完成后创建（需要实际上下文窗口）
     val data = remember { ZhiJingData.get(context.applicationContext) }
     var manager by remember { mutableStateOf<ConversationManager?>(null) }
+
+    // --- 云端大模型接入 ---
+    val cloudConfig = remember { CloudConfigStore(context.applicationContext) }
+    val cloudRuntime = remember { CloudRuntime() }
+    // 已保存的服务商配置（null = 未配置，纯端侧）
+    var cloudProvider by remember { mutableStateOf<CloudProvider?>(null) }
+    var showCloudSettings by remember { mutableStateOf(false) }
+    // 最近一次回答的引擎标记，显示在消息气泡下方
+    var lastRoute by remember { mutableStateOf<RoutePolicy.RouteMode?>(null) }
+    var routeNotice by remember { mutableStateOf<String?>(null) }
+
+    // 预设值只读，供设置页一键填充
+    val cloudPresets = remember { CloudProvider.PRESETS }
 
     // 多会话
     var conversations by remember { mutableStateOf<List<ConversationEntitySnapshot>>(emptyList()) }
@@ -185,6 +235,19 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(Unit) {
+        // 先恢复云端配置：即使端侧模型加载失败，配置好的云端也能用
+        runCatching { cloudConfig.load() }
+            .onSuccess { saved ->
+                if (saved != null && saved.readyFailureReason() == null) {
+                    cloudProvider = saved
+                    cloudRuntime.provider = saved
+                    cloudRuntime.engine = RemoteInferenceEngine(saved)
+                    // 已配置云端但用户没显式选过 → 默认仍走端侧（LOCAL_ONLY）
+                    android.util.Log.i("Zhijing", "cloud configured: ${saved.displayName} / ${saved.model}")
+                }
+            }
+            .onFailure { android.util.Log.w("Zhijing", "cloud config load failed", it) }
+
         try {
             val model = withContext(Dispatchers.IO) { copyModelToPrivateStorage(context, spec) }
             // Native llama.cpp 初始化在 engine 创建时异步进行，先等它就绪再加载模型。
@@ -206,12 +269,14 @@ fun ChatScreen(modifier: Modifier = Modifier) {
             )
             val created = ConversationManager(
                 conversations = data.conversations,
-                engine = engine,
+                local = LocalChatEngine(engine),
+                cloud = cloudRuntime.engine,
                 budget = budget,
                 predictLength = spec.predictLength,
                 // 本地收藏检索；嵌入模型加载失败时 buildAugmentedPrompt 会自动降级
                 contents = data.contents,
                 retrieval = RetrievalConfig.DEFAULT,
+                routePolicy = FixedRoutePolicy(cloudRuntime.routeMode),
             )
             // 有历史会话就恢复最近那个，否则新建
             val existing = created.observeConversations().first()
@@ -316,7 +381,14 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                             )
                             Text(
                                 text = if (modelReady) {
-                                    "${spec.displayName} · ${conversations.size} 个会话"
+                                    val where = when {
+                                        cloudRuntime.routeMode == RoutePolicy.RouteMode.LOCAL_ONLY || cloudProvider == null ->
+                                            spec.displayName
+                                        cloudRuntime.routeMode == RoutePolicy.RouteMode.CLOUD_ONLY ->
+                                            "${cloudProvider?.displayName} · ${cloudProvider?.model}"
+                                        else -> "${spec.displayName} → ${cloudProvider?.displayName}"
+                                    }
+                                    "$where · ${conversations.size} 个会话"
                                 } else "正在加载模型…",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -404,6 +476,7 @@ fun ChatScreen(modifier: Modifier = Modifier) {
 
                         scope.launch {
                             val buffer = StringBuilder()
+                            routeNotice = null
                             try {
                                 activeManager.send(text).collect { token ->
                                     buffer.append(token)
@@ -412,8 +485,13 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
-                                buffer.append("\n[错误] ").append(e.message ?: e.javaClass.simpleName)
+                                buffer.append("\n[错误] ").append(describeError(e))
                             } finally {
+                                lastRoute = activeManager.lastRoute
+                                // 云端失败自动回退时，明确告诉用户"已切到端侧"
+                                activeManager.lastFallbackReason?.let {
+                                    routeNotice = "云端不可用（${it}），已自动改用端侧模型回答"
+                                }
                                 val finalText = buffer.toString()
                                 if (finalText.isNotEmpty()) {
                                     messages.add(ChatMessage(finalText, false))
@@ -436,6 +514,16 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     text = "模型加载失败：$error",
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
+            // 路由提示：云端失败回退，或当前走云端
+            routeNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
         }
@@ -501,11 +589,34 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
                     Text(
-                        "更多设置项将在后续版本加入。",
+                        if (cloudProvider == null) "云端大模型：未配置" else
+                            "云端大模型：${cloudProvider?.displayName} · ${cloudProvider?.model}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (cloudProvider == null) {
+                            "配置后可选择走云端。请确认你愿意把提问内容发给该服务商。"
+                        } else {
+                            "当前策略：" + when (cloudRuntime.routeMode) {
+                                RoutePolicy.RouteMode.LOCAL_ONLY -> "优先端侧（不联网）"
+                                RoutePolicy.RouteMode.CLOUD_FIRST -> "优先云端，失败自动改端侧"
+                                RoutePolicy.RouteMode.CLOUD_ONLY -> "仅云端"
+                            }
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = {
+                        showSettings = false
+                        showCloudSettings = true
+                    }) {
+                        Text(if (cloudProvider == null) "配置云端大模型" else "管理云端大模型")
+                    }
                 }
             },
             confirmButton = {
@@ -513,6 +624,289 @@ fun ChatScreen(modifier: Modifier = Modifier) {
             },
         )
     }
+
+    if (showCloudSettings) {
+        CloudSettingsDialog(
+            initial = cloudProvider ?: cloudFormDefaults,
+            presets = cloudPresets,
+            currentRoute = cloudRuntime.routeMode,
+            onDismiss = { showCloudSettings = false },
+            onSave = { provider, route ->
+                // 保存配置并切换路由；密钥由 CloudConfigStore 用 Keystore 加密后落盘
+                val saved = runCatching { cloudConfig.save(provider) }.isSuccess
+                if (!saved) {
+                    routeNotice = "保存失败：API Key 无法加密，请检查系统安全设置"
+                    showCloudSettings = false
+                    return@CloudSettingsDialog
+                }
+                cloudProvider = provider
+                cloudRuntime.provider = provider
+                cloudRuntime.routeMode = route
+
+                val remote = cloudRuntime.engine ?: RemoteInferenceEngine(provider).also {
+                    cloudRuntime.engine = it
+                }
+                remote.updateProvider(provider)
+
+                // 切换路由需要新的 ConversationManager（routePolicy 不可变）；
+                // 端侧引擎是单例，直接复用，不重新加载模型。
+                manager = manager?.let {
+                    ConversationManager(
+                        conversations = data.conversations,
+                        local = LocalChatEngine(engine),
+                        cloud = remote,
+                        // 模型未加载时 contextWindow() 会调 native，必须给兜底值
+                        budget = ContextBudget.from(
+                            window = if (modelReady) engine.contextWindow() else spec.contextSize,
+                            predictLength = spec.predictLength,
+                            systemPrompt = spec.systemPrompt,
+                        ),
+                        predictLength = spec.predictLength,
+                        contents = data.contents,
+                        retrieval = RetrievalConfig.DEFAULT,
+                        routePolicy = FixedRoutePolicy(route),
+                    )
+                }
+                // 重新打开当前会话，让新管理器接管上下文
+                scope.launch {
+                    val m = manager ?: return@launch
+                    runCatching { m.open(m.currentId().takeIf { it != 0L }, spec.systemPrompt) }
+                }
+                routeNotice = null
+                showCloudSettings = false
+            },
+            onClear = {
+                cloudConfig.clear()
+                cloudProvider = null
+                cloudRuntime.provider = null
+                cloudRuntime.engine = null
+                cloudRuntime.routeMode = RoutePolicy.RouteMode.LOCAL_ONLY
+                routeNotice = "已清除云端配置，恢复为纯端侧"
+                showCloudSettings = false
+            },
+        )
+    }
+}
+
+/** 未配置时的表单初值：DeepSeek 预设，密钥留空。 */
+private val cloudFormDefaults: CloudProvider = CloudProvider.DEEPSEEK
+
+/** 把异常翻译成用户能看懂的一句话。 */
+private fun describeError(e: Exception): String = when (e) {
+    is CloudException -> e.message ?: "云端请求失败"
+    else -> e.message ?: e.javaClass.simpleName
+}
+
+/**
+ * 云端大模型配置界面。
+ *
+ * 设计取舍：
+ * - 预设一键填充（DeepSeek / Kimi / 通义 / 智谱 / 硅基流动 / Ollama），
+ *   但所有字段都可改，因此任意 OpenAI 兼容服务（含自建 vLLM）都能接。
+ * - API Key 用 PasswordVisualTransformation 遮蔽，落盘前经 Keystore 加密。
+ * - "测试连接"发一次最小请求（1 个 token），不消耗多少额度也能验证配置。
+ * - 路由档位放在同一页，让用户清楚"什么时候会联网"。
+ */
+@Composable
+private fun CloudSettingsDialog(
+    initial: CloudProvider,
+    presets: List<CloudProvider>,
+    currentRoute: RoutePolicy.RouteMode,
+    onDismiss: () -> Unit,
+    onSave: (CloudProvider, RoutePolicy.RouteMode) -> Unit,
+    onClear: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var presetId by remember { mutableStateOf(initial.id) }
+    var displayName by remember { mutableStateOf(initial.displayName) }
+    var baseUrl by remember { mutableStateOf(initial.baseUrl) }
+    var model by remember { mutableStateOf(initial.model) }
+    var apiKey by remember { mutableStateOf(initial.apiKey) }
+    var stream by remember { mutableStateOf(initial.stream) }
+    var route by remember { mutableStateOf(currentRoute) }
+    var keyVisible by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+
+    val draft = CloudProvider(
+        id = presetId,
+        displayName = displayName,
+        baseUrl = baseUrl.trim(),
+        model = model.trim(),
+        apiKey = apiKey.trim(),
+        stream = stream,
+    )
+    val configError = draft.readyFailureReason()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("云端大模型") },
+        text = {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 460.dp),
+            ) {
+                Text(
+                    "接入任意 OpenAI 兼容接口。密钥用系统 Keystore 加密后存放，不会以明文写入文件。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+
+                // 预设：横向可滚动的一排小按钮
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(presets) { p ->
+                        AssistChip(
+                            onClick = {
+                                presetId = p.id
+                                displayName = p.displayName
+                                baseUrl = p.baseUrl
+                                model = p.model
+                                testResult = null
+                            },
+                            label = { Text(p.displayName) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("显示名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("接口根地址") },
+                    placeholder = { Text("https://api.deepseek.com") },
+                    supportingText = { Text("不含 /chat/completions，会用 https") },
+                    singleLine = true,
+                    isError = baseUrl.isNotBlank() && !baseUrl.startsWith("https"),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = { Text("模型名") },
+                    placeholder = { Text("deepseek-chat") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it; testResult = null },
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    visualTransformation = if (keyVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        TextButton(onClick = { keyVisible = !keyVisible }) {
+                            Text(if (keyVisible) "隐藏" else "显示", style = MaterialTheme.typography.labelSmall)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = stream, onCheckedChange = { stream = it })
+                    Text("流式输出（逐字显示）", style = MaterialTheme.typography.bodySmall)
+                }
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text("什么时候使用云端", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+                listOf(
+                    RoutePolicy.RouteMode.LOCAL_ONLY to "优先端侧（默认，不联网）",
+                    RoutePolicy.RouteMode.CLOUD_FIRST to "优先云端，失败自动改端侧",
+                    RoutePolicy.RouteMode.CLOUD_ONLY to "仅云端",
+                ).forEach { (mode, label) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { route = mode },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = route == mode, onClick = { route = mode })
+                        Text(label, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text(
+                    "隐私提示：选择云端后，你的提问以及检索到的本地收藏片段会发送给上述服务商。" +
+                        "切回「优先端侧」即可恢复完全离线。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                testResult?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (it.startsWith("连接成功")) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(
+                    enabled = !testing && configError == null,
+                    onClick = {
+                        testing = true
+                        testResult = "正在测试…"
+                        scope.launch {
+                            testResult = try {
+                                // 最小请求：只要 1 个 token，验证地址/密钥/模型名
+                                val client = RemoteChatClient(connectTimeoutMs = 15_000, readTimeoutMs = 30_000)
+                                val reply = client.streamChat(
+                                    provider = draft.copy(stream = false),
+                                    messages = listOf(CloudMessage("user", "hi")),
+                                    maxTokens = 1,
+                                )
+                                var got = false
+                                reply.collect { got = true }
+                                if (got) "连接成功" else "连接成功（服务端返回空内容）"
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                "连接失败：${describeError(e)}"
+                            } finally {
+                                testing = false
+                            }
+                        }
+                    },
+                ) { Text(if (testing) "测试中…" else "测试连接") }
+                if (initial.apiKey.isNotEmpty()) {
+                    TextButton(onClick = onClear) { Text("清除") }
+                }
+                TextButton(
+                    enabled = configError == null,
+                    onClick = { onSave(draft, route) },
+                ) { Text("保存") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 /**

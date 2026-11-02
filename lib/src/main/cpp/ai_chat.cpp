@@ -104,10 +104,15 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_load(JNIEnv *env, jobject, jstr
     aichat_last_native_log.clear();
     llama_model_params model_params = llama_model_default_params();
 
-    // Pin weights in RAM. With plain mmap the kernel may evict weight pages
-    // under memory pressure, turning every decode step into disk IO; locking
-    // trades that for a higher chance of the system killing other apps instead.
-    model_params.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+    // Plain mmap: let the kernel manage weight pages through the page cache.
+    //
+    // MMAP_MLOCK was tried before and made things worse on real devices: locking
+    // 2 GB of weights requires 2 GB of free physical RAM, and under pressure the
+    // kernel reclaims pages while mlock walks them, so the fault/reclaim cycle
+    // repeats. Measured effect was load times growing on every launch (60 s and
+    // worse) instead of staying flat. With plain mmap the file-backed pages are
+    // reclaimable and reload quickly from the page cache on the next start.
+    model_params.load_mode = LLAMA_LOAD_MODE_MMAP;
 
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
     LOGd("%s: Loading model from: \n%s\n", __func__, model_path);
