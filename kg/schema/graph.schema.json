@@ -1,0 +1,281 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zhijing.local/kg/graph.schema.json",
+  "title": "知境知识图谱 graph.json",
+  "description": "广度知识图谱（outline/card）与深度探索图谱（claim/edge/condition）的单一真相源。校验入口：python kg/src/validate_graph.py",
+  "type": "object",
+  "required": ["meta", "outline", "cards", "claims", "entities", "edges", "navigation"],
+  "additionalProperties": false,
+  "definitions": {
+    "id": {
+      "type": "string",
+      "pattern": "^(out|crd|clm|ent|edg)\\.[a-z0-9][a-z0-9._-]*$",
+      "description": "节点/边 ID，规则见 schema/id-spec.md"
+    },
+    "claim_ref": {
+      "type": "string",
+      "pattern": "^clm\\.[a-z0-9][a-z0-9._-]*\\.[0-9a-f]{4,8}$"
+    },
+    "node_ref": {
+      "type": "string",
+      "pattern": "^(out|crd|clm|ent)\\.[a-z0-9][a-z0-9._-]*$"
+    },
+    "probe_state": {
+      "type": "string",
+      "enum": ["unprobed", "verified", "mastered", "confused"],
+      "description": "未探测 / 已验证 / 已掌握 / 易混淆。注意「已探测」不等于「已掌握」"
+    },
+    "condition": {
+      "type": "object",
+      "description": "边上的条件 = 该命题的适用范围。缺条件即视为非法边",
+      "required": ["kind", "premise", "boundary"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["shape", "range", "statistics", "gradient", "semantic"],
+          "description": "形状 / 值域 / 统计量 / 梯度路径 / 语义依赖，用于撞错时定位错点"
+        },
+        "premise": { "type": "string", "minLength": 2, "description": "成立前提" },
+        "boundary": { "type": "string", "minLength": 2, "description": "边界：什么情况下不再适用" },
+        "counterexample": { "type": "string", "description": "反例：越界的具体场景，可空" }
+      }
+    },
+    "outline_node": {
+      "type": "object",
+      "required": ["id", "type", "title", "level", "path", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "type": { "const": "outline" },
+        "title": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "parentId": { "type": ["string", "null"] },
+        "path": { "type": "string", "description": "语义路径，如 arch.ffn.linear" },
+        "order": { "type": "integer", "minimum": 0 },
+        "descendable": { "const": false, "description": "分类节点不参与判断，不可下钻" }
+      }
+    },
+    "cross_link": {
+      "type": "object",
+      "required": ["target", "targetKind", "label", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/definitions/node_ref" },
+        "targetKind": { "type": "string", "enum": ["card", "entity", "claim"] },
+        "label": { "type": "string" },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reason": { "type": "string", "description": "为什么有关：共享实体/主题" }
+      }
+    },
+    "card_node": {
+      "type": "object",
+      "required": ["id", "type", "title", "outlinePath", "summary", "body", "crossLinks", "claimIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "type": { "const": "card" },
+        "title": { "type": "string", "minLength": 1 },
+        "outlinePath": { "type": "string" },
+        "summary": { "type": "string", "minLength": 10, "description": "卡片摘要，广度侧第一屏可读" },
+        "body": { "type": "string", "description": "卡片正文（Markdown 片段），不得含判定答案" },
+        "chain": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/node_ref" },
+          "description": "代码块中的 A → B → C 组件链，供主题树/流程图示意"
+        },
+        "crossLinks": {
+          "type": "array",
+          "maxItems": 5,
+          "description": "交叉链接封顶 5 条并按 weight 降序，防止退化成节点图",
+          "items": { "$ref": "#/definitions/cross_link" }
+        },
+        "claimIds": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/claim_ref" },
+          "description": "挂在这张叶子卡上的命题（下钻入口）"
+        }
+      }
+    },
+    "judgement_panel": {
+      "type": "object",
+      "description": "判断面板。第一屏只允许出现 question，reveal 在用户作答后才揭示",
+      "required": ["question", "expected", "reveal"],
+      "additionalProperties": false,
+      "properties": {
+        "question": { "type": "string", "description": "第一屏唯一文案" },
+        "expected": { "type": "boolean", "description": "标准答案：该命题是否成立" },
+        "reveal": {
+          "type": "object",
+          "description": "撞错后才展开：解释、错点定位、误解、边界",
+          "required": ["explanation", "errorKinds"],
+          "additionalProperties": false,
+          "properties": {
+            "explanation": { "type": "string" },
+            "errorKinds": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["kind", "why"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["shape", "range", "statistics", "gradient", "semantic"]
+                  },
+                  "why": { "type": "string" }
+                }
+              }
+            },
+            "misconception": { "type": "string", "description": "撞错时暴露的常见误解，回写广度侧做易错点注记" }
+          }
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "required": ["probe_status", "last_probed_at", "misconceptions", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "probe_status": { "$ref": "#/definitions/probe_state" },
+        "last_probed_at": { "type": ["string", "null"] },
+        "misconceptions": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "attempts": { "type": "integer", "minimum": 0, "description": "仅深度侧留存，不回写" },
+        "correct": { "type": "integer", "minimum": 0, "description": "仅深度侧留存，不回写" }
+      }
+    },
+    "claim_node": {
+      "type": "object",
+      "required": ["id", "type", "statement", "conditions", "evidence", "breadth", "depth"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/claim_ref" },
+        "type": { "const": "claim" },
+        "statement": { "type": "string", "minLength": 6, "description": "一句话可判真假的断言" },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "成立条件 / 边界 / 反例摘要"
+        },
+        "evidence": { "type": "string", "description": "支撑或反驳该命题的原文片段，可溯源" },
+        "breadth": {
+          "type": "object",
+          "description": "广度视图所需。字段白名单固定，禁止把 reveal 内容塞进来",
+          "required": ["outlinePath", "cardId", "cardSummary", "leafContent"],
+          "additionalProperties": false,
+          "properties": {
+            "outlinePath": { "type": "string" },
+            "cardId": { "type": "string" },
+            "cardSummary": { "type": "string" },
+            "leafContent": { "type": "string" }
+          }
+        },
+        "depth": {
+          "type": "object",
+          "required": ["edges", "judgementPanel", "probeState"],
+          "additionalProperties": false,
+          "properties": {
+            "edges": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+            "judgementPanel": { "$ref": "#/definitions/judgement_panel" },
+            "probeState": { "$ref": "#/definitions/probe" }
+          }
+        }
+      }
+    },
+    "entity_node": {
+      "type": "object",
+      "required": ["id", "type", "kind", "canonicalName", "aliases", "mentions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "type": { "const": "entity" },
+        "kind": {
+          "type": "string",
+          "enum": ["concept", "method", "metric", "tool", "dataset", "formula"]
+        },
+        "canonicalName": { "type": "string", "minLength": 1 },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["cardId", "surface"],
+            "additionalProperties": false,
+            "properties": {
+              "cardId": { "type": "string" },
+              "surface": { "type": "string", "description": "原文中的写法" }
+            }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "from", "to", "type", "condition", "evidence", "weight"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "from": { "$ref": "#/definitions/claim_ref" },
+        "to": { "$ref": "#/definitions/claim_ref" },
+        "type": {
+          "type": "string",
+          "enum": ["depends_on", "affects", "contains", "contrasts", "refutes", "prerequisite"]
+        },
+        "condition": { "$ref": "#/definitions/condition" },
+        "evidence": { "type": "string" },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "nav_item": {
+      "type": "object",
+      "required": ["title", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "kind": { "type": "string", "enum": ["outline", "card"] },
+        "id": { "type": "string" },
+        "children": { "type": "array", "items": { "$ref": "#/definitions/nav_item" } },
+        "claimCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["schemaVersion", "source", "generator", "generatedAt", "counts"],
+      "additionalProperties": true,
+      "properties": {
+        "schemaVersion": { "type": "string" },
+        "source": { "type": "string" },
+        "generator": { "type": "string" },
+        "generatedAt": { "type": "string" },
+        "counts": {
+          "type": "object",
+          "required": ["outline", "card", "claim", "entity", "edge"],
+          "additionalProperties": false,
+          "properties": {
+            "outline": { "type": "integer", "minimum": 0 },
+            "card": { "type": "integer", "minimum": 0 },
+            "claim": { "type": "integer", "minimum": 0 },
+            "entity": { "type": "integer", "minimum": 0 },
+            "edge": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "outline": { "type": "array", "items": { "$ref": "#/definitions/outline_node" } },
+    "cards": { "type": "array", "items": { "$ref": "#/definitions/card_node" } },
+    "claims": { "type": "array", "items": { "$ref": "#/definitions/claim_node" } },
+    "entities": { "type": "array", "items": { "$ref": "#/definitions/entity_node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
+    "navigation": {
+      "type": "array",
+      "description": "广度侧导航树。只允许出现 outline / card；深度图谱必须从叶子卡片下钻，不允许根级入口",
+      "items": { "$ref": "#/definitions/nav_item" }
+    }
+  }
+}

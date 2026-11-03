@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知境 · UI 方案选定（六页原型）</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- 左侧：原型控制台（不属于产品界面，仅用于评审演示） -->
+  <aside class="rail">
+    <div class="rail-head">
+      <span class="rail-mark" aria-hidden="true"></span>
+      <div>
+        <h1>庭院纸感</h1>
+        <p>知境 · UI 方案选定</p>
+      </div>
+    </div>
+
+    <p class="rail-note">
+      浅色纸底 + 植物绿主色 + 衬线标题；四态用「墨点」区分，不靠颜色堆信息。
+      对应说明书 6.1.1–6.1.3。
+    </p>
+
+    <div class="rail-group">
+      <span class="rail-label">主题</span>
+      <div class="seg" id="themeSeg" role="group" aria-label="主题">
+        <button class="on" data-theme="light">纸白</button>
+        <button data-theme="dark">林地夜</button>
+      </div>
+    </div>
+
+    <div class="rail-group">
+      <span class="rail-label">字号（系统缩放）</span>
+      <div class="seg" id="scaleSeg" role="group" aria-label="字号">
+        <button class="on" data-scale="1">100%</button>
+        <button data-scale="1.15">115%</button>
+        <button data-scale="1.3">130%</button>
+      </div>
+    </div>
+
+    <div class="rail-group">
+      <span class="rail-label">问答页状态</span>
+      <div class="seg" id="chatSeg" role="group" aria-label="问答状态">
+        <button class="on" data-chat="stream">回答中</button>
+        <button data-chat="empty">本地无内容</button>
+      </div>
+    </div>
+
+    <div class="rail-group">
+      <span class="rail-label">页面</span>
+      <ul class="page-list" id="pageList">
+        <li><button data-page="home" class="on">01 首页</button></li>
+        <li><button data-page="chat">02 问答</button></li>
+        <li><button data-page="garden">03 认知庭院</button></li>
+        <li><button data-page="detail">04 内容详情</button></li>
+        <li><button data-page="compare">05 观点对照</button></li>
+        <li><button data-page="settings">06 设置</button></li>
+      </ul>
+    </div>
+
+    <p class="rail-foot">点击手机内的卡片 / 返回，可在这六页之间走完整条主线。</p>
+  </aside>
+
+  <!-- 右侧：设备 -->
+  <div class="device-wrap">
+    <div class="phone" id="phone">
+
+      <div class="statusbar" aria-hidden="true">
+        <span>9:41</span>
+        <span class="statusbar-right">
+          <svg width="16" height="11" viewBox="0 0 16 11" fill="none"><path d="M1 8.5V10M5 6V10M9 3.5V10M13 1V10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><path d="M1 4.2C3.6 1.9 6.1 1 7.5 1s3.9.9 6.5 3.2M3.4 6.6C5 5.2 6.4 4.7 7.5 4.7s2.5.5 4.1 1.9M7.5 9.6v.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <svg width="23" height="11" viewBox="0 0 23 11" fill="none"><rect x=".8" y=".8" width="18" height="9.4" rx="2.6" stroke="currentColor" stroke-width="1.2" opacity=".5"/><rect x="2.4" y="2.4" width="12" height="6.2" rx="1.4" fill="currentColor"/><path d="M20.4 4v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".5"/></svg>
+        </span>
+      </div>
+
+      <div class="viewport" id="viewport">
+
+        <!-- ═══════════════════ 01 首页 ═══════════════════ -->
+        <section class="screen is-active" id="screen-home" aria-label="首页">
+          <header class="appbar">
+            <div class="appbar-title">知境</div>
+            <div class="appbar-actions">
+              <button class="icon-btn" aria-label="搜索">
+                <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="8.6" cy="8.6" r="5.6" stroke="currentColor" stroke-width="1.5"/><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+              <button class="icon-btn" data-goto="settings" aria-label="设置">
+                <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="2.8" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.6v2M10 15.4v2M2.6 10h2M15.4 10h2M4.8 4.8l1.4 1.4M13.8 13.8l1.4 1.4M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </header>
+
+          <div class="screen-body">
+            <h2 class="greeting">下午好。<span class="muted-line">你收藏里又多了一条联系。</span></h2>
+
+            <!-- 解析队列：说明书 4.2.2 -->
+            <div class="queue" role="status">
+              <div class="queue-row">
+                <span class="queue-pulse" aria-hidden="true"></span>
+                <span class="queue-text">正在理解第 2 条 · <span class="mono">12s</span></span>
+                <button class="text-btn">暂停</button>
+              </div>
+              <div class="queue-track"><i style="width:62%"></i></div>
+            </div>
+
+            <div class="section-head">
+              <h3>最近收藏</h3>
+              <button class="text-btn">全部</button>
+            </div>
+
+            <!-- 内容卡：叶脉书签 + 四态墨点 -->
+            <article class="card" data-goto="detail" tabindex="0" role="button">
+              <span class="spine spine--mastered" aria-hidden="true"></span>
+              <h4 class="card-title">为什么 ReLU 后面直接接 Softmax 会出问题</h4>
+              <div class="card-meta-row">
+                <span class="card-meta">抖音 · 昨天 21:40 · 312 字</span>
+                <span class="badge badge--mastered"><i class="dot"></i>已掌握</span>
+              </div>
+              <p class="card-summary">形状对得上不代表语义对：Softmax 要的是未归一化的 logits，而 ReLU 的输出已经丢掉了负半轴。</p>
+              <div class="chips">
+                <span class="chip">神经网络</span>
+                <span class="chip">激活函数</span>
+                <span class="chip chip--soft">3 条命题</span>
+              </div>
+            </article>
+
+            <article class="card" data-goto="detail" tabindex="0" role="button">
+              <span class="spine spine--confused" aria-hidden="true"></span>
+              <h4 class="card-title">BatchNorm 在推理时到底用谁的统计量</h4>
+              <div class="card-meta-row">
+                <span class="card-meta">知乎 · 3 天前 · 486 字</span>
+                <span class="badge badge--confused"><i class="dot"></i>易混淆</span>
+              </div>
+              <p class="card-summary">训练用批内统计量，推理用滑动统计量——忘了切 eval 模式是线上掉点最常见的原因。</p>
+              <p class="note-warn">易错点注记：把「训练时行为」当成「推理时行为」。</p>
+              <div class="chips">
+                <span class="chip">归一化</span>
+                <span class="chip chip--soft">2 条命题</span>
+              </div>
+            </article>
+
+            <div class="section-head">
+              <h3>新的关联</h3>
+              <span class="hint-inline">因为你收藏了「LayerNorm」</span>
+            </div>
+
+            <article class="rel-card">
+              <div class="rel-pair">
+                <div class="rel-item">
+                  <span class="rel-kicker">新收藏</span>
+                  <p>Pre-LN 为什么比 Post-LN 好训</p>
+                </div>
+                <span class="rel-link" aria-hidden="true">
+                  <svg width="22" height="10" viewBox="0 0 22 10" fill="none"><path d="M1 5h19M16 1.5 19.5 5 16 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <div class="rel-item">
+                  <span class="rel-kicker">旧收藏</span>
+                  <p>Post-LN 深层网络为什么要 warmup</p>
+                </div>
+              </div>
+              <p class="rel-reason">共同主题：归一化位置 · 共享 3 个实体</p>
+              <div class="feedback">
+                <button class="fb-btn">很好</button>
+                <button class="fb-btn">平常</button>
+                <button class="fb-btn">不好</button>
+              </div>
+            </article>
+
+            <button class="banner" data-goto="compare">
+              <span class="banner-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M10 3v14M3 6.5h4M13 13.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="5" cy="6.5" r="1.6" stroke="currentColor" stroke-width="1.3"/><circle cx="15" cy="13.5" r="1.6" stroke="currentColor" stroke-width="1.3"/></svg>
+              </span>
+              <span class="banner-text">今晚 20:00 · 回顾 5 条<span>范围：神经网络 · 直述要点</span></span>
+              <span class="banner-cta">调整</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ═══════════════════ 02 问答 ═══════════════════ -->
+        <section class="screen" id="screen-chat" aria-label="问答">
+          <header class="appbar">
+            <div class="appbar-title">问答</div>
+            <div class="appbar-tag" title="当前推理后端">0.5B · CPU</div>
+          </header>
+
+          <div class="screen-body screen-body--chat">
+            <div class="turn turn--user">
+              <p id="userAsk">ReLU 后面能直接接 Softmax 吗？</p>
+            </div>
+
+            <div class="turn turn--ai" id="answerStream">
+              <p>不能。形状上接得上，但语义上不对。</p>
+              <p><strong>Softmax</strong> 期望的输入是未归一化的 logits（可正可负），它内部做的是 <span class="mono">exp(z)/Σexp(z)</span>。而 <strong>ReLU</strong> 把负半轴全部压成 0，先丢了一半信息；再送进 Softmax，等于让一个「只剩正数」的分布去归一化，梯度分布被扭曲。</p>
+              <p>还有一个边界：当类别数 <span class="mono">C=1</span> 时，Softmax 恒输出 1，完全没有区分度。</p>
+
+              <div class="thinking" id="thinkingBar">
+                <span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>正在思考…</span>
+                <button class="text-btn text-btn--danger">取消</button>
+              </div>
+
+              <div class="refs">
+                <span class="refs-label">引用来源</span>
+                <button class="ref">为什么 ReLU 后面接 Softmax 会出问题</button>
+                <button class="ref">Softmax 的定义与数值稳定</button>
+              </div>
+            </div>
+
+            <div class="turn turn--ai turn--empty" id="answerEmpty" hidden>
+              <p class="empty-title">本地还没有这方面的内容</p>
+              <p class="empty-body">你收藏的内容里没有和「扩散模型」相关的片段。可以先收藏几篇，再回来问 —— 知境不会联网找答案，也不会替你编一个。</p>
+              <button class="btn btn--ghost">去收藏</button>
+            </div>
+
+            <p class="disclaimer">回答只依据你收藏的内容 · 不确定时会直说</p>
+          </div>
+
+          <div class="composer">
+            <button class="icon-btn" aria-label="附件">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><path d="M12.5 6.5 7 12a2.1 2.1 0 0 0 3 3l6-6a3.5 3.5 0 0 0-5-5L4.6 10.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+            <input class="composer-input" placeholder="问点什么，从你的收藏里找答案" aria-label="输入问题">
+            <button class="send-btn" aria-label="发送">
+              <svg width="16" height="16" viewBox="0 0 18 18" fill="none"><path d="M2.5 9h12M10 4.5 14.5 9 10 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- ═══════════════════ 03 认知庭院 ═══════════════════ -->
+        <section class="screen" id="screen-garden" aria-label="认知庭院">
+          <header class="appbar">
+            <div class="appbar-title">认知庭院</div>
+            <div class="appbar-tag">42 条 · 7 主题</div>
+          </header>
+
+          <div class="screen-body screen-body--garden">
+            <h2 class="greeting greeting--sm">你的知识长成了一棵树。</h2>
+
+            <div class="tree-wrap">
+              <svg class="tree" viewBox="0 0 340 296" role="img" aria-label="主题树：5 个可见主题，节点大小表示内容数量，节点颜色表示探测状态">
+                <!-- 地面阴影 -->
+                <ellipse cx="170" cy="284" rx="96" ry="9" fill="var(--tree-shadow)"/>
+
+                <!-- 冠层：先画，压在枝干之下 -->
+                <circle class="canopy" cx="170" cy="152" r="58" fill="var(--tree-canopy)" opacity=".5"/>
+                <circle class="canopy" cx="112" cy="134" r="40" fill="var(--tree-canopy)" opacity=".42"/>
+                <circle class="canopy" cx="232" cy="126" r="44" fill="var(--tree-canopy)" opacity=".42"/>
+                <circle class="canopy" cx="146" cy="98" r="30" fill="var(--tree-canopy)" opacity=".34"/>
+                <circle class="canopy" cx="208" cy="90" r="28" fill="var(--tree-canopy)" opacity=".32"/>
+                <circle class="canopy" cx="170" cy="112" r="44" fill="var(--tree-canopy)" opacity=".16"/>
+
+                <!-- 主枝与细枝 -->
+                <g stroke="var(--tree-trunk)" fill="none" stroke-linecap="round">
+                  <path d="M170 283V198" stroke-width="9"/>
+                  <path d="M170 210C150 196 130 182 116 164" stroke-width="5.5"/>
+                  <path d="M170 204C194 190 214 176 228 156" stroke-width="5.5"/>
+                  <path d="M170 198V170" stroke-width="4"/>
+                  <path d="M116 164C113 152 112 146 112 142" stroke-width="3.2"/>
+                  <path d="M228 156C231 144 232 136 232 132" stroke-width="3.2"/>
+                  <path d="M146 176C146 148 145 122 145 104" stroke-width="3"/>
+                  <path d="M210 168C209 140 208 112 208 96" stroke-width="3"/>
+                </g>
+
+                <!-- 关联线：被选中的主题到相邻主题（虚线 = 弱连接，可点开看依据） -->
+                <g stroke="var(--line)" stroke-width="1" stroke-dasharray="2.5 3.5" fill="none">
+                  <path d="M162 140 149 110"/>
+                  <path d="M180 142 202 100"/>
+                  <path d="M158 145 122 137"/>
+                </g>
+
+                <!-- 主题节点：颜色 = 探测状态，半径 = 内容量 -->
+                <g class="node node--focus">
+                  <circle cx="170" cy="152" r="16" fill="var(--surface)" stroke="var(--status-confused)" stroke-width="2.5"/>
+                  <circle cx="170" cy="152" r="5.5" fill="var(--status-confused)"/>
+                  <text x="170" y="128" text-anchor="middle">神经网络</text>
+                </g>
+                <g class="node">
+                  <circle cx="112" cy="134" r="12" fill="var(--surface)" stroke="var(--status-mastered)" stroke-width="2.2"/>
+                  <circle cx="112" cy="134" r="4.2" fill="var(--status-mastered)"/>
+                  <text x="96" y="138" text-anchor="end">RAG</text>
+                </g>
+                <g class="node">
+                  <circle cx="232" cy="126" r="13" fill="var(--surface)" stroke="var(--status-verified)" stroke-width="2.2"/>
+                  <circle cx="232" cy="126" r="4.5" fill="var(--status-verified)"/>
+                  <text x="252" y="130" text-anchor="start">端侧模型</text>
+                </g>
+                <g class="node">
+                  <circle cx="145" cy="96" r="9" fill="var(--surface)" stroke="var(--status-unprobed)" stroke-width="2"/>
+                  <text x="145" y="79" text-anchor="middle">产品设计</text>
+                </g>
+                <g class="node">
+                  <circle cx="208" cy="88" r="8" fill="var(--surface)" stroke="var(--status-unprobed)" stroke-width="2"/>
+                  <text x="208" y="72" text-anchor="middle">隐私</text>
+                </g>
+
+                <!-- 叶簇：让冠层边缘不那么规整 -->
+                <g fill="var(--leaf-light)" opacity=".5">
+                  <ellipse cx="80" cy="118" rx="9" ry="5" transform="rotate(-22 80 118)"/>
+                  <ellipse cx="268" cy="108" rx="9" ry="5" transform="rotate(18 268 108)"/>
+                  <ellipse cx="120" cy="72" rx="8" ry="4.5" transform="rotate(-38 120 72)"/>
+                </g>
+
+                <!-- 新芽：提示这棵树还在长 -->
+                <path d="M170 240c-6-1-9-4-10-9 6 0 9 3 10 9z" fill="var(--leaf-mid)" opacity=".5"/>
+              </svg>
+
+              <div class="tree-tip">
+                <span class="badge badge--confused"><i class="dot"></i>易混淆 1</span>
+                <span>「神经网络」12 条 · 3 条待判断 · 双指可缩放</span>
+              </div>
+            </div>
+
+            <div class="garden-actions">
+              <button class="btn btn--primary" data-goto="detail">看看这一支</button>
+              <button class="btn btn--ghost">全部主题</button>
+            </div>
+
+            <!-- 养成系动物：种子阶段 -->
+            <div class="pet">
+              <svg viewBox="0 0 96 96" width="86" height="86" role="img" aria-label="养成系动物：萌芽阶段">
+                <ellipse cx="48" cy="86" rx="22" ry="4" fill="var(--tree-shadow)"/>
+                <path d="M30 62h36l-4 20H34z" fill="var(--pot)" stroke="var(--pot-line)" stroke-width="1.6" stroke-linejoin="round"/>
+                <path d="M48 62V40" stroke="var(--stem)" stroke-width="3" stroke-linecap="round"/>
+                <path d="M48 46c-9-1-14-6-15-13 9 0 14 5 15 13z" fill="var(--leaf-light)"/>
+                <path d="M48 42c8-2 12-7 12-13-8 1-12 5-12 13z" fill="var(--leaf-mid)"/>
+                <circle cx="42" cy="70" r="1.8" fill="var(--pot-line)"/>
+                <circle cx="54" cy="70" r="1.8" fill="var(--pot-line)"/>
+                <path d="M44 75c2 1.6 6 1.6 8 0" stroke="var(--pot-line)" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+              </svg>
+              <div class="pet-text">
+                <p class="pet-title">萌芽 · 距离下一阶段还差 8 条</p>
+                <p class="pet-sub">收藏与回顾会让它慢慢长大。它不吃数据，只看你读不读。</p>
+              </div>
+            </div>
+
+            <div class="legend">
+              <span><i class="dot dot--unprobed"></i>未探测</span>
+              <span><i class="dot dot--verified"></i>已验证</span>
+              <span><i class="dot dot--mastered"></i>已掌握</span>
+              <span><i class="dot dot--confused"></i>易混淆</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═══════════════════ 04 内容详情 ═══════════════════ -->
+        <section class="screen" id="screen-detail" aria-label="内容详情">
+          <header class="appbar">
+            <button class="icon-btn" data-back aria-label="返回">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><path d="M12 4.5 6.5 10l5.5 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="appbar-title appbar-title--sm">内容</div>
+            <button class="icon-btn" aria-label="更多">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="5" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="15" cy="10" r="1.5" fill="currentColor"/></svg>
+            </button>
+          </header>
+
+          <div class="screen-body">
+            <h2 class="detail-title">为什么 ReLU 后面直接接 Softmax 会出问题</h2>
+            <p class="detail-meta">抖音 · 昨天 21:40 收藏 · 312 字</p>
+
+            <div class="chips">
+              <span class="chip">神经网络</span>
+              <span class="chip">激活函数</span>
+              <span class="chip chip--soft">立场：技术解释</span>
+            </div>
+
+            <article class="prose">
+              <p>很多人第一次搭分类头时，都会把 ReLU 直接接在 Softmax 前面。代码不报错，loss 也在降，于是就被当成「能跑」。</p>
+              <p>但形状对得上不等于语义对。<strong>Softmax 期望的输入是未归一化的 logits</strong>，可正可负；而 ReLU 的输出全为非负数。把负半轴压成 0 之后，信息已经丢了一半，再去做归一化，等于让一个残损的分布去表达概率。</p>
+              <p>更隐蔽的是梯度：多一次 Softmax，反向时就会多乘一个 <span class="mono">p(1-p)</span> 因子，训练明显变慢，甚至学不动。</p>
+            </article>
+
+            <div class="quote">
+              <span class="quote-label">回答里引用了这一段</span>
+              <p>Softmax 期望的输入是未归一化的 logits，可正可负；而 ReLU 的输出全为非负数。</p>
+            </div>
+
+            <div class="section-head"><h3>我的备注</h3></div>
+            <div class="memo" contenteditable="true" role="textbox" aria-label="备注">下次画图时把「形状依赖 / 语义依赖」分开标，别再用「接得上」这种说法。</div>
+
+            <div class="section-head"><h3>相关内容</h3><span class="hint-inline">2 条</span></div>
+            <button class="rel-row" data-goto="detail">
+              <span class="rel-row-title">Softmax 的定义与数值稳定</span>
+              <span class="rel-row-meta">共同标签：激活函数 · 相似度 0.81</span>
+            </button>
+            <button class="rel-row" data-goto="compare">
+              <span class="rel-row-title">另一种说法：ReLU→Softmax 在实践中够用</span>
+              <span class="rel-row-meta">观点对照 · 立场相反</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ═══════════════════ 05 观点对照 ═══════════════════ -->
+        <section class="screen" id="screen-compare" aria-label="观点对照">
+          <header class="appbar">
+            <button class="icon-btn" data-back aria-label="返回">
+              <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><path d="M12 4.5 6.5 10l5.5 5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="appbar-title appbar-title--sm">观点对照</div>
+            <span class="appbar-tag">话题：分类头设计</span>
+          </header>
+
+          <div class="screen-body">
+            <h2 class="compare-title">同一个问题，两种说法。</h2>
+            <p class="compare-sub">两边都来自你自己的收藏，摘要基于原文生成，可点进原文核对。</p>
+
+            <div class="stance stance--a">
+              <div class="stance-head">
+                <span class="stance-tag">A · 反对直接接</span>
+                <span class="stance-count">3 条收藏</span>
+              </div>
+              <p class="stance-body">ReLU 输出全非负，丢掉了负半轴的信息；Softmax 需要的是可正可负的 logits。形状能跑通只是必要条件。</p>
+              <button class="text-btn">看原文 →</button>
+            </div>
+
+            <div class="stance-divider"><span>分歧</span></div>
+
+            <div class="stance stance--b">
+              <div class="stance-head">
+                <span class="stance-tag">B · 认为实践中够用</span>
+                <span class="stance-count">2 条收藏</span>
+              </div>
+              <p class="stance-body">小模型最后一层 ReLU 之后接 Softmax，训练照样收敛；工程上更该关心数据与正则，而不是这一层的顺序。</p>
+              <button class="text-btn">看原文 →</button>
+            </div>
+
+            <div class="prompt-card">
+              <p class="prompt-q">两边的分歧出在哪里？</p>
+              <ul class="prompt-list">
+                <li>一边在说<strong>可训练性</strong>，一边在说<strong>可收敛</strong>，是同一个标准吗？</li>
+                <li>如果换成 C=1 的边界，B 的说法还成立吗？</li>
+              </ul>
+            </div>
+
+            <div class="section-head"><h3>我的想法</h3></div>
+            <textarea class="memo memo--area" rows="3" placeholder="写完可以保存到本地，不上传"></textarea>
+            <button class="btn btn--primary btn--full">保存想法</button>
+          </div>
+        </section>
+
+        <!-- ═══════════════════ 06 设置 ═══════════════════ -->
+        <section class="screen" id="screen-settings" aria-label="设置">
+          <header class="appbar">
+            <div class="appbar-title">设置</div>
+            <div class="appbar-tag">全部在本地</div>
+          </header>
+
+          <div class="screen-body">
+            <div class="group-label">模型与性能</div>
+            <div class="group">
+              <div class="row">
+                <div class="row-main">
+                  <span class="row-title">模型档位</span>
+                  <span class="row-sub">当前设备 8GB 内存，建议 0.5B</span>
+                </div>
+              </div>
+              <div class="seg seg--wide" role="group" aria-label="模型档位">
+                <button class="on">0.5B · 快</button>
+                <button>1.5B · 准</button>
+              </div>
+              <div class="row row--between">
+                <span class="row-title">推理后端</span>
+                <span class="row-value">CPU（无可用 NPU）</span>
+              </div>
+            </div>
+
+            <div class="group-label">回顾</div>
+            <div class="group">
+              <div class="row row--between">
+                <div class="row-main">
+                  <span class="row-title">记忆唤醒</span>
+                  <span class="row-sub">每天 20:00 · 直述要点</span>
+                </div>
+                <button class="switch is-on" role="switch" aria-checked="true" aria-label="记忆唤醒"></button>
+              </div>
+              <div class="row row--between">
+                <span class="row-title">回顾范围</span>
+                <span class="row-value">全部主题</span>
+              </div>
+            </div>
+
+            <div class="group-label">权限</div>
+            <div class="group">
+              <button class="row row--btn">
+                <div class="row-main">
+                  <span class="row-title">通知监听（白名单感知）</span>
+                  <span class="row-sub row-sub--warn">未开启 · 需要授权</span>
+                </div>
+                <span class="chev">›</span>
+              </button>
+              <div class="row row--between">
+                <span class="row-title">通知权限</span>
+                <span class="row-value row-value--ok">已允许</span>
+              </div>
+            </div>
+
+            <div class="group-label">数据</div>
+            <div class="group">
+              <div class="row row--between">
+                <span class="row-title">本地数据</span>
+                <span class="row-value">42 条内容 · 38MB</span>
+              </div>
+              <button class="row row--btn">
+                <div class="row-main">
+                  <span class="row-title">导出日志</span>
+                  <span class="row-sub">生成一个本地文件，方便反馈问题</span>
+                </div>
+                <span class="chev">›</span>
+              </button>
+              <button class="row row--btn row--danger">
+                <div class="row-main">
+                  <span class="row-title">一键清空所有数据</span>
+                  <span class="row-sub">内容、向量、关联、问答记录一并删除</span>
+                </div>
+                <span class="chev">›</span>
+              </button>
+            </div>
+
+            <p class="settings-foot">数据只存在本机，不参与任何模型训练。<br>知境 v1.0 · 模型 GLM-Edge-0.5B（int4）</p>
+          </div>
+        </section>
+
+      </div>
+
+      <nav class="tabbar" aria-label="主导航">
+        <button class="tab is-active" data-page="home">
+          <svg width="21" height="21" viewBox="0 0 22 22" fill="none"><path d="M3.5 9.5 11 3.5l7.5 6v8a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <span>首页</span>
+        </button>
+        <button class="tab" data-page="chat">
+          <svg width="21" height="21" viewBox="0 0 22 22" fill="none"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h9A2.5 2.5 0 0 1 18 6.5v6A2.5 2.5 0 0 1 15.5 15H9l-4 3.2V15H6.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <span>问答</span>
+        </button>
+        <button class="tab" data-page="garden">
+          <svg width="21" height="21" viewBox="0 0 22 22" fill="none"><path d="M11 19v-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11 12c-3.5-.4-5.6-2.4-6-5.5 3.6 0 5.6 1.8 6 5.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M11 10.5c3-.6 4.8-2.4 5-5-3.1.2-4.8 1.8-5 5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 19h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>庭院</span>
+        </button>
+        <button class="tab" data-page="settings">
+          <svg width="21" height="21" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="8" r="3.2" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 18.5c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>我的</span>
+        </button>
+      </nav>
+
+    </div>
+
+    <p class="hint">390 × 844 · 浅色/深色、字号缩放、四态角标、加载与空态均已覆盖</p>
+  </div>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>

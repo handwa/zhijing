@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="D5pO4btz8FSYbBP7mwJCD5">
+<head data-page-node-id="Fm7zC3WQ3Z4dIuv8EFINhk">
+<meta charset="utf-8" data-page-node-id="MvdsmlDzPfDewrdDwruzZ2">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="GPFGIPpe7xRdIANHqQ2kUl">
+<title>知境 · 知识图谱展示</title>
+<link rel="stylesheet" href="style.css" data-page-node-id="o9ICrUjoMYNEmPBVP0735f">
+</head>
+<body data-page-node-id="oi50eBJ8Qf4KeTGkB9v8gy">
+<header class="topbar" data-page-node-id="s4D93751BCo3Qcq3wMvTHh">
+  <div class="brand" data-page-node-id="9BhX32Ilaj6qZoN8vyOaZe">
+    <span class="brand-mark" aria-hidden="true" data-page-node-id="yFLDfqAU4IsEZRfRPf3ksi"></span>
+    <div data-page-node-id="SANhqJQt57kiyfbc0nULzS">
+      <h1 data-page-node-id="SWhPM90ls3HpV0TerKRXkJ">知境 · 知识图谱</h1>
+      <p class="sub" data-page-node-id="FliZuXOshrmx9RYEX8C9xv">广度图谱负责「覆盖」，深度图谱负责「穿透」——读的时候知道自己在哪，判的时候知道自己在读什么。</p>
+    </div>
+  </div>
+  <div class="topbar-right" data-page-node-id="wVq0eaLXngI2ZPaBOwehQe">
+    <div class="stat-chips" id="statChips" data-page-node-id="0M1dz4kRVKOa0rcAGnuQr1"></div>
+    <div class="view-switch" role="tablist" aria-label="视图切换" data-page-node-id="yqjxBHkW3Gl7EzLrKaBgB2">
+      <button class="chip-btn active" data-view="breadth" role="tab" aria-selected="true" data-page-node-id="SK3al4zcyndpO8GYMuzHXC">广度 · 读</button>
+      <button class="chip-btn" data-view="structure" role="tab" aria-selected="false" data-page-node-id="Q7gLyfFYbz7RWmLqkGXBEi">结构图</button>
+    </div>
+    <button class="ghost-btn" id="resetBtn" title="清空本地判断状态，回到未探测" data-page-node-id="W2C5PQnuRBd2j0bKYWCF5M">重置状态</button>
+  </div>
+</header>
+
+<main class="layout" data-page-node-id="kfgWOlgOHD1TZrYbQCj0FJ">
+  <!-- 左：分层大纲 -->
+  <aside class="sidebar" id="sidebar" data-page-node-id="Wc5qTqtCTsPUAGL0vNOdfV">
+    <div class="sidebar-head" data-page-node-id="wKXPSF4PuqRjnJTpAFAkHi">
+      <h2 data-page-node-id="bCMJkrpD9oUH3nGduVNj1u">分层大纲</h2>
+      <button class="text-btn" id="allBtn" data-page-node-id="mKr9mflMRqxKffX8wnWCqD">全部</button>
+    </div>
+    <nav class="outline-tree" id="outlineTree" aria-label="大纲" data-page-node-id="EuN1AWnexSw8ZH651lEhni"></nav>
+    <div class="legend" data-page-node-id="IxDcuNa63KYT0lVsVYyRi6">
+      <h3 data-page-node-id="JezOlRtLCNOlBKfRE0YZsB">卡片角标</h3>
+      <ul data-page-node-id="YV6sC9wnorzh6w4MVAIYoL">
+        <li data-page-node-id="LXlBCI3YtZjOLtBOmKTFJk"><span class="dot s-unprobed" data-page-node-id="xupoCPEp4Z65CnqFyNHdN7"></span>未探测</li>
+        <li data-page-node-id="KmHdBX8GyG3m8AiCZk1YuI"><span class="dot s-verified" data-page-node-id="2EIsBRulfxoueAYguATHPh"></span>已验证</li>
+        <li data-page-node-id="aMEJ8HiL4SMGnYsmIPkDXc"><span class="dot s-mastered" data-page-node-id="CwYSYsvRjZqudUgQuTJWpI"></span>已掌握</li>
+        <li data-page-node-id="ff4N7aYmFzDXeA4lCSj3XV"><span class="dot s-confused" data-page-node-id="xfCcoN4tRJB1w8B3Bp1k6e"></span>易混淆</li>
+      </ul>
+      <p class="legend-note" data-page-node-id="2lmvZZaZa2r7UOyjz9cVMs">角标由深度侧命题状态聚合而来，广度侧不存储状态（派生而非存储）。</p>
+    </div>
+  </aside>
+
+  <!-- 中：卡片流 -->
+  <section class="content" id="breadthView" data-page-node-id="OSk70m18qKTRvUvhiHVEGF">
+    <div class="content-head" data-page-node-id="LXsUAWRQDi9EonJpVp0ppg">
+      <div data-page-node-id="fKg2m4bjbayrHOw7zvrLrp">
+        <h2 id="listTitle" data-page-node-id="031sm4g8PMAkoVq8vM5EXw">全部卡片</h2>
+        <p class="muted" id="listHint" data-page-node-id="nSOVU65Ehfm7c2HYXvdefN">每张卡是一段可独立阅读的内容；叶子卡片右上角可下钻到判断面板。</p>
+      </div>
+      <input id="searchInput" class="search" type="search" placeholder="搜索命题或卡片…" aria-label="搜索" data-page-node-id="sYLCo5gUVtGyjWankE6IVA">
+    </div>
+    <div class="card-list" id="cardList" data-page-node-id="vRmecWgAyDaZQCBMYG5DKE"></div>
+  </section>
+
+  <!-- 右：结构图 -->
+  <section class="structure" id="structureView" hidden data-page-node-id="9SiBVWhWV3GDgXlzyVu0xJ">
+    <div class="structure-head" data-page-node-id="EQgNbjwhjfOoY2jfs20y5E">
+      <div data-page-node-id="NFoBErYQZR3TmaJt5bNnFB">
+        <h2 data-page-node-id="bKLBtoKLo6qZnrgGgFWSQC">主题树与关联</h2>
+        <p class="muted" data-page-node-id="CULoLdoJwr9n2AB9adfdvD">节点是卡片，实线是大纲层级，虚线是交叉链接（每卡封顶 5 条）。可拖动、可缩放。</p>
+      </div>
+      <div class="zoom-controls" data-page-node-id="TqK17Y6PVCHQgf6WwKdJRZ">
+        <button class="ghost-btn" id="zoomOut" aria-label="缩小" data-page-node-id="XKM0GRMMepQdwKms6Iv5MS">−</button>
+        <button class="ghost-btn" id="zoomIn" aria-label="放大" data-page-node-id="CHeA0IasnqAG2YPXqSNwAw">+</button>
+        <button class="ghost-btn" id="zoomReset" data-page-node-id="dxWFYr1AemLCtPF9UeqBRd">复位</button>
+      </div>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap" data-page-node-id="ZGm3tb641kYbZpIEr9RURM">
+      <svg id="structureSvg" role="img" aria-label="知识图谱结构图" data-page-node-id="QWaSYjbP33kqI4qp9bOJ9Q"></svg>
+      <p class="canvas-hint" data-page-node-id="mI1spmtON6SgmSBD3DXPgn">滚轮缩放 · 拖动平移 · 点击卡片查看内容</p>
+    </div>
+  </section>
+</main>
+
+<!-- 深度图谱：全屏下钻层。无独立入口，只能从叶子卡片进入 -->
+<div class="depth-overlay" id="depthOverlay" hidden data-page-node-id="SnGrFEZ6cB3VafUkQuvMgZ">
+  <div class="depth-panel" role="dialog" aria-modal="true" aria-labelledby="depthStatement" data-page-node-id="LPLAr7UGN36pTuzmTj63pi">
+    <div class="depth-head" data-page-node-id="noqcq1JzWo92NUSG0IB1cn">
+      <div class="depth-breadcrumb" id="depthBreadcrumb" data-page-node-id="gJESs3koWQ1icu8ApCE74h"></div>
+      <button class="close-btn" id="depthClose" aria-label="关闭" data-page-node-id="KOItQ4vvqRIFC7hbi4vmeB">✕</button>
+    </div>
+
+    <!-- 第一屏：只有命题 + 两个按钮 -->
+    <div class="depth-first" id="depthFirst" data-page-node-id="QTGf9jXaeISllkaTfdqCEz">
+      <p class="depth-label" data-page-node-id="VAtKdIVAMqNNPmtB8LuWop">这个说法成立吗？</p>
+      <h3 class="depth-statement" id="depthStatement" data-page-node-id="GO47eP0mP8ehle1MG3Cj6W"></h3>
+      <p class="depth-tip" data-page-node-id="XOP2Oa7VLxGwOUdzsyIxAa">先自己判断，条件与边界在作答之后才展开。</p>
+      <div class="judge-row" data-page-node-id="b9cJ0pCP80FDlnuTIm7VSs">
+        <button class="judge-btn yes" data-answer="true" data-page-node-id="23DrYt7Re5N62g6pfu4c65">成立</button>
+        <button class="judge-btn no" data-answer="false" data-page-node-id="O5QGJcRRy100Bkyi1Wz8i7">不成立</button>
+      </div>
+      <div class="depth-progress" id="depthProgress" data-page-node-id="rlqQ6miNhbKWNsY3cvkDk6"></div>
+    </div>
+
+    <!-- 撞错之后：条件、边界、反例、误解 -->
+    <div class="depth-reveal" id="depthReveal" hidden data-page-node-id="B1SfGx5Kt6vFQhTOa4Pcsi">
+      <div class="verdict" id="verdict" data-page-node-id="UvX56Iy57sf1LR538mQp7F"></div>
+      <div class="reveal-block" data-page-node-id="kRTvRwEApbO2CZdCdOEfbH">
+        <h4 data-page-node-id="RcH8gvqQCug9bzfDLZenWc">为什么</h4>
+        <p id="revealExplain" data-page-node-id="tv7AoQ7EHXI8MVzH7weARD"></p>
+      </div>
+      <div class="reveal-block" data-page-node-id="OdIyFnCq85zwSXJiua0aje">
+        <h4 data-page-node-id="M3Cl40Q3aPqRh9Qlx8LYy6">成立条件与边界</h4>
+        <ul id="revealConditions" class="condition-list" data-page-node-id="u66OM34mXKjIxAmoe3541Z"></ul>
+      </div>
+      <div class="reveal-block" id="errorBlock" data-page-node-id="XRRTwXVsdzoK0TrO9XQT2O">
+        <h4 data-page-node-id="UGaVVQltYXmQWmcPlxcO47">错点落在哪条依赖上</h4>
+        <div id="errorKinds" class="error-kinds" data-page-node-id="jgvRtZ3LbMeFoY9pMd6Sdx"></div>
+      </div>
+      <div class="reveal-block" id="edgeBlock" data-page-node-id="LFFIRDsx1Ijq5lftBulGP2">
+        <h4 data-page-node-id="PYWYP5YnBXlWhqFK16UTHH">关联的带条件边</h4>
+        <div id="edgeList" class="edge-list" data-page-node-id="bQ72PXjcCrwDR2MvnTKiRs"></div>
+      </div>
+      <div class="reveal-block" id="misconceptionBlock" hidden data-page-node-id="CnK7c08dsIA50QDrPx9gT4">
+        <h4 data-page-node-id="ek10IYHXU1aaiSIoBA6XlF">这条误解会被记下来</h4>
+        <p id="misconceptionText" data-page-node-id="Z8Ma7jrv7ZMOiExBBg52oD"></p>
+      </div>
+      <div class="reveal-actions" data-page-node-id="abR4AB7BhZpzZKlqPA2DN6">
+        <button class="primary-btn" id="nextClaimBtn" data-page-node-id="kGsABCXelEgDQMKkNoq1nq">下一条命题</button>
+        <button class="ghost-btn" id="backToCardBtn" data-page-node-id="g8FdhyRAJhsRXinhAW62le">回到卡片</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="foot" data-page-node-id="7QAwASoz1XAbASDHS8xJ1z">
+  <span data-page-node-id="v0LEDni5Qh4c3qGpw2lD5m">数据：<code id="metaSource" data-page-node-id="I67XnZokHbcOEufKLYqrtn">kg/data/out/graph.json</code></span>
+  <span id="metaTime" data-page-node-id="ogrqNQGTO3XPYexxkeC8DK"></span>
+  <span data-page-node-id="nr7fdhdnkhHA5wm8fDWUkP">校验：<code data-page-node-id="K5lwWF2gcxrmMIJ79hiTAK">python kg/src/validate_graph.py</code></span>
+</footer>
+
+<script src="graph-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
