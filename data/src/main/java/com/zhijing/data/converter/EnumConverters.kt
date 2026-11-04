@@ -4,11 +4,14 @@ import androidx.room.TypeConverter
 import com.zhijing.data.model.AnswerStatus
 import com.zhijing.data.model.AnalysisStatus
 import com.zhijing.data.model.AssociationFeedback
+import com.zhijing.data.model.ClaimReviewStatus
+import com.zhijing.data.model.ClaimSource
 import com.zhijing.data.model.EmbeddingStatus
 import com.zhijing.data.model.ImportChannel
 import com.zhijing.data.model.ParseTaskStatus
 import com.zhijing.data.model.ParseTaskType
 import com.zhijing.data.model.PetPhase
+import com.zhijing.data.model.ProbeStatus
 import com.zhijing.data.model.StanceStatus
 import com.zhijing.data.model.VectorOwnerType
 import com.zhijing.data.model.WakeMode
@@ -90,4 +93,24 @@ internal class EnumConverters {
 
     @TypeConverter
     fun wireToVectorOwnerType(wire: String?): VectorOwnerType = VectorOwnerType.fromWire(wire)
+
+    /* --------------------------------------------------- 知识图谱（TEXT 存储） */
+
+    @TypeConverter
+    fun probeStatusToWire(value: ProbeStatus): String = value.wire
+
+    @TypeConverter
+    fun wireToProbeStatus(wire: String?): ProbeStatus = ProbeStatus.fromWire(wire)
+
+    @TypeConverter
+    fun claimSourceToWire(value: ClaimSource): String = value.wire
+
+    @TypeConverter
+    fun wireToClaimSource(wire: String?): ClaimSource = ClaimSource.fromWire(wire)
+
+    @TypeConverter
+    fun claimReviewStatusToWire(value: ClaimReviewStatus): String = value.wire
+
+    @TypeConverter
+    fun wireToClaimReviewStatus(wire: String?): ClaimReviewStatus = ClaimReviewStatus.fromWire(wire)
 }

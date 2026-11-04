@@ -1,4 +1,4 @@
-package com.example.zhijing
+﻿package com.example.zhijing
 
 import android.content.Context
 import android.os.Bundle
@@ -57,6 +57,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
@@ -94,6 +95,13 @@ import com.example.zhijing.cloud.CloudMessage
 import com.example.zhijing.cloud.CloudProvider
 import com.example.zhijing.cloud.RemoteChatClient
 import com.example.zhijing.cloud.RemoteInferenceEngine
+import com.example.zhijing.kg.CloudClaimExtractor
+import com.example.zhijing.kg.GraphMode
+import com.example.zhijing.kg.GraphModeStore
+import com.example.zhijing.kg.GraphAssembler
+import com.example.zhijing.kg.GraphUpdateCoordinator
+import com.zhijing.data.model.ClaimReviewStatus
+import com.zhijing.data.model.RuntimeClaim
 import com.zhijing.data.repository.ConversationEntitySnapshot
 import com.example.zhijing.model.ModelRegistry
 import com.example.zhijing.model.ModelSpec
@@ -180,6 +188,26 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     // 预设值只读，供设置页一键填充
     val cloudPresets = remember { CloudProvider.PRESETS }
 
+    // --- 图谱模式 ---
+    // 与聊天路由相互独立：决定「图谱从哪来」，而不是「谁来回答」
+    val graphModeStore = remember { GraphModeStore(context.applicationContext) }
+    var graphMode by remember { mutableStateOf(graphModeStore.load()) }
+    var graphNotice by remember { mutableStateOf<String?>(null) }
+    var showGraphSettings by remember { mutableStateOf(false) }
+
+    // --- 待确认候选命题 ---
+    // 云端抽取的命题先落库为 pending，确认后才进入图谱（见 GraphAssembler）
+    val graphAssembler = remember { GraphAssembler(context.applicationContext, data) }
+    var pendingCandidates by remember { mutableStateOf<List<RuntimeClaim>>(emptyList()) }
+    var showPendingClaims by remember { mutableStateOf(false) }
+
+    // 候选队列变化时刷新计数；图谱模式或云端配置变化也要重取
+    LaunchedEffect(graphMode, cloudProvider) {
+        runCatching {
+            graphAssembler.observePendingCandidates().collect { pendingCandidates = it }
+        }
+    }
+
     // 多会话
     var conversations by remember { mutableStateOf<List<ConversationEntitySnapshot>>(emptyList()) }
     var showConversations by remember { mutableStateOf(false) }
@@ -215,12 +243,51 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         contents = data.contents,
                         embeddingModelId = ModelRegistry.embedding().id,
                     )
-                    val contentId = indexer.indexDocument(file) { done, total ->
+                    val indexed = indexer.indexDocument(file) { done, total ->
                         importProgress = ImportProgress("正在建立索引…", done, total)
                     }
                     withContext(Dispatchers.IO) { file.delete() }
-                    importMessage = "已导入并建立索引（内容 id=$contentId）"
-                    android.util.Log.i("Zhijing", "document imported, content=$contentId")
+                    android.util.Log.i("Zhijing", "document imported, content=${indexed.contentId}")
+
+                    // 图谱更新：离线模式直接跳过，云端增强模式下才联网抽取。
+                    // 失败不影响导入本身 —— 内容已经落库并建好索引了。
+                    if (graphMode == GraphMode.OFFLINE || cloudProvider == null) {
+                        importMessage = "已导入并建立索引（内容 id=${indexed.contentId}）"
+                    } else {
+                        importProgress = ImportProgress("正在抽取知识图谱命题…", 0, 0)
+                        val outcome = GraphUpdateCoordinator(data).update(
+                            // 抽取建议 ≤900 字，超长时截取头部：
+                            // 开头的定义性内容通常最能产出可判断的命题
+                            content = indexed.text.take(CloudClaimExtractor.MAX_CONTENT_CHARS),
+                            path = "content.${indexed.contentId}",
+                            cardId = "crd.content.${indexed.contentId}",
+                            outlinePath = "content",
+                            provider = cloudProvider,
+                            mode = graphMode,
+                            embeddingOf = { text ->
+                                runCatching { engine.embed(text) }.getOrNull()
+                            }
+                        )
+                        importMessage = when (outcome) {
+                            is GraphUpdateCoordinator.Outcome.Skipped ->
+                                "已导入并建立索引（内容 id=${indexed.contentId}），图谱未更新"
+
+                            is GraphUpdateCoordinator.Outcome.Extracted -> buildString {
+                                append("已导入并建立索引（内容 id=${indexed.contentId}）")
+                                if (outcome.inserted > 0) {
+                                    append("\n抽取出 ${outcome.inserted} 条候选命题，需确认后进入图谱")
+                                } else {
+                                    append("\n本次没有新的可判断命题")
+                                }
+                                if (outcome.skipped > 0) append("\n${outcome.skipped} 条与已有命题重复，已跳过")
+                                if (outcome.rejected > 0) append("\n${outcome.rejected} 条不合格，已丢弃")
+                            }
+
+                            is GraphUpdateCoordinator.Outcome.Failed ->
+                                "已导入并建立索引（内容 id=${indexed.contentId}）\n" +
+                                    "图谱抽取失败：${outcome.reason}"
+                        }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -323,6 +390,11 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 conversations = conversations,
                 currentId = manager?.currentId() ?: 0,
                 enabled = modelReady && !busy && !isGenerating,
+                pendingClaimCount = pendingCandidates.size,
+                onOpenPending = {
+                    scope.launch { drawerState.close() }
+                    showPendingClaims = true
+                },
                 onNewChat = {
                     scope.launch {
                         drawerState.close()
@@ -526,6 +598,16 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
+
+            // 图谱模式切换提示：中性色，它不是错误
+            graphNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
         }
         }
     }
@@ -617,10 +699,66 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     }) {
                         Text(if (cloudProvider == null) "配置云端大模型" else "管理云端大模型")
                     }
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
+                    Text("知识图谱来源", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "当前：${graphMode.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = {
+                        showSettings = false
+                        showGraphSettings = true
+                    }) {
+                        Text("设置图谱模式")
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showSettings = false }) { Text("关闭") }
+            },
+        )
+    }
+
+    if (showPendingClaims) {
+        PendingClaimsDialog(
+            candidates = pendingCandidates,
+            onDismiss = { showPendingClaims = false },
+            onConfirm = { ids ->
+                scope.launch {
+                    val now = System.currentTimeMillis()
+                    ids.forEach { id ->
+                        runCatching { data.kgClaims.review(id, ClaimReviewStatus.CONFIRMED, now) }
+                    }
+                    graphNotice = "已确认 ${ids.size} 条命题，进入知识图谱"
+                }
+            },
+            onReject = { ids ->
+                scope.launch {
+                    val now = System.currentTimeMillis()
+                    ids.forEach { id ->
+                        runCatching { data.kgClaims.review(id, ClaimReviewStatus.REJECTED, now) }
+                    }
+                    graphNotice = "已否决 ${ids.size} 条候选命题"
+                }
+            },
+        )
+    }
+
+    if (showGraphSettings) {
+        GraphSettingsDialog(
+            current = graphMode,
+            hasCloud = cloudProvider != null,
+            onDismiss = { showGraphSettings = false },
+            onSave = { mode ->
+                graphMode = mode
+                graphModeStore.save(mode)
+                graphNotice = "图谱模式已切换为「${mode.label}」"
+                showGraphSettings = false
             },
         )
     }
@@ -682,14 +820,245 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 cloudRuntime.engine = null
                 cloudRuntime.routeMode = RoutePolicy.RouteMode.LOCAL_ONLY
                 routeNotice = "已清除云端配置，恢复为纯端侧"
+                // 云端增强依赖服务商；清除后自动降级为离线，避免停在「选了云端却没有配置」的矛盾状态
+                if (graphMode == GraphMode.CLOUD_ENHANCED) {
+                    graphMode = GraphMode.OFFLINE
+                    graphModeStore.save(GraphMode.OFFLINE)
+                    graphNotice = "图谱模式已随之切回「${GraphMode.OFFLINE.label}」"
+                }
                 showCloudSettings = false
             },
         )
     }
 }
 
+/**
+ * 待确认候选命题的审核界面。
+ *
+ * 这里体现的是设计文档的一条硬约束：**云端生成的命题未经确认不得进入图谱**。
+ * 小模型产出的命题质量不可控，直接进图谱会污染阅读体验，所以必须先过这一关。
+ *
+ * 交互上的两个取舍：
+ * - **默认全选**：用户大多会接受，逐条勾选太繁琐；但每条都完整展开，
+ *   让用户有「扫一眼就能否决掉离谱的」的能力。
+ * - **答案可见**：这是审核界面，不是判断界面。用户在这里是「编辑者」，
+ *   需要看到答案与条件才能决定收不收。判断面板里的「先判后揭示」不适用于此。
+ */
+@Composable
+private fun PendingClaimsDialog(
+    candidates: List<RuntimeClaim>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit,
+    onReject: (List<String>) -> Unit,
+) {
+    // 默认全选；用户可逐条取消
+    val selected = remember(candidates) {
+        mutableStateListOf<String>().apply { addAll(candidates.map { it.claimId }) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("待确认命题（${candidates.size}）") },
+        text = {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 460.dp),
+            ) {
+                Text(
+                    "这些是 AI 从你的收藏里抽出的候选命题。确认后才会进入知识图谱，" +
+                        "并可在对应卡片下进行判断。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                candidates.forEach { claim ->
+                    val checked = claim.claimId in selected
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        ),
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { on ->
+                                        if (on) {
+                                            if (claim.claimId !in selected) selected.add(claim.claimId)
+                                        } else {
+                                            selected.remove(claim.claimId)
+                                        }
+                                    },
+                                )
+                                Text(
+                                    claim.statement,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "答案：${if (claim.expected) "成立" else "不成立"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            if (claim.conditions.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                claim.conditions.forEach { cond ->
+                                    Text(
+                                        "· $cond",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            claim.evidence?.takeIf { it.isNotBlank() }?.let { ev ->
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "原文：$ev",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            claim.providerId?.let { provider ->
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "来自 $provider",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val ids = selected.toList()
+                    if (ids.isNotEmpty()) onConfirm(ids)
+                    onDismiss()
+                },
+                enabled = selected.isNotEmpty(),
+            ) { Text("确认 ${selected.size} 条") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(
+                    onClick = {
+                        onReject(candidates.map { it.claimId })
+                        onDismiss()
+                    },
+                ) { Text("全部否决") }
+                TextButton(onClick = onDismiss) { Text("稍后") }
+            }
+        },
+    )
+}
+
 /** 未配置时的表单初值：DeepSeek 预设，密钥留空。 */
 private val cloudFormDefaults: CloudProvider = CloudProvider.DEEPSEEK
+
+/**
+ * 图谱来源模式选择。
+ *
+ * 与「云端大模型」对话框分开两处，是因为两者是**独立开关**：
+ * 用户可能想用云端聊天、但图谱保持离线（不把收藏原文发出去），也可能反过来。
+ *
+ * 刻意不提供「仅云端」这种档位：图谱没有端侧替代品，
+ * 一旦只允许云端就等于「没配置就完全没有图谱」，没有意义。
+ */
+@Composable
+private fun GraphSettingsDialog(
+    current: GraphMode,
+    hasCloud: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (GraphMode) -> Unit,
+) {
+    var selected by remember { mutableStateOf(current) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("知识图谱来源") },
+        text = {
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(max = 420.dp),
+            ) {
+                Text(
+                    "决定新收藏的内容要不要交给云端抽取成可判断的命题。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                GraphMode.entries.forEach { mode ->
+                    val enabled = mode != GraphMode.CLOUD_ENHANCED || hasCloud
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = selected == mode,
+                            onClick = { if (enabled) selected = mode },
+                            enabled = enabled,
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                mode.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                when (mode) {
+                                    GraphMode.OFFLINE ->
+                                        "只读预置图谱，阅读与判断完全可用，不联网。"
+                                    GraphMode.CLOUD_ENHANCED ->
+                                        if (hasCloud) {
+                                            "AI 把收藏内容抽成命题；新命题需你确认后才进入图谱。" +
+                                                "\n注意：收藏原文会发送给已配置的服务商。"
+                                        } else {
+                                            "需先配置云端大模型。"
+                                        }
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "切换不会丢失已有的判断记录：离线与云端共用同一套命题状态。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(selected) },
+                enabled = selected != GraphMode.CLOUD_ENHANCED || hasCloud,
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
 
 /** 把异常翻译成用户能看懂的一句话。 */
 private fun describeError(e: Exception): String = when (e) {
@@ -917,9 +1286,11 @@ private fun ChatDrawer(
     conversations: List<ConversationEntitySnapshot>,
     currentId: Long,
     enabled: Boolean,
+    pendingClaimCount: Int,
     onNewChat: () -> Unit,
     onSelect: (ConversationEntitySnapshot) -> Unit,
     onImport: () -> Unit,
+    onOpenPending: () -> Unit,
     onSettings: () -> Unit,
 ) {
     ModalDrawerSheet {
@@ -1003,6 +1374,12 @@ private fun ChatDrawer(
         HorizontalDivider()
         // 底部功能区
         DrawerBottomItem(Icons.Default.AddCircle, "导入文档", onImport, enabled = enabled)
+        DrawerBottomItem(
+            icon = Icons.Default.CheckCircle,
+            label = if (pendingClaimCount == 0) "待确认命题"
+            else "待确认命题（$pendingClaimCount）",
+            onClick = onOpenPending,
+        )
         DrawerBottomItem(Icons.Default.Settings, "设置", onSettings)
         Spacer(Modifier.height(16.dp))
     }

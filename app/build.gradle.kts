@@ -60,6 +60,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // 图谱合并加载器要读 assets/kg/graph.json 并访问 Room，需要可用的 Context 与 assets。
+    // Robolectric 提供隔离的 Android 运行时，不污染开发机上的真实数据库。
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))

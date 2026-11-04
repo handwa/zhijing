@@ -124,13 +124,13 @@ class RagIndexer(
      *
      * @param file 待导入的文件
      * @param onProgress 进度回调 (已处理段数, 总段数)；解析阶段也会回调粗粒度进度
-     * @return 新内容的 id
+     * @return 索引结果：新内容 id + 解析出的原文
      * @throws DocumentParseException 格式不支持、文件损坏或没有可提取文字
      */
     suspend fun indexDocument(
         file: File,
         onProgress: ((done: Int, total: Int) -> Unit)? = null,
-    ): Long {
+    ): IndexedDocument {
         if (engine.embeddingDim() == 0) {
             throw IllegalStateException("嵌入模型未加载，无法建立索引")
         }
@@ -143,13 +143,23 @@ class RagIndexer(
             "parsed ${file.name} -> ${text.length} chars in ${System.currentTimeMillis() - t0} ms",
         )
 
-        return indexText(
+        val contentId = indexText(
             text = text,
             source = file.name,
             importChannel = ImportChannel.MANUAL,
             onProgress = onProgress,
         )
+        // 一并把原文返回：调用方（图谱抽取）需要它，避免再解析一遍文件
+        return IndexedDocument(contentId = contentId, text = text, source = file.name)
     }
+
+    /** 一次文档导入的结果。 */
+    data class IndexedDocument(
+        val contentId: Long,
+        /** 解析出的完整原文，供后续抽取（如图谱命题）使用。 */
+        val text: String,
+        val source: String
+    )
 
     /**
      * 对分段向量取均值再归一化。

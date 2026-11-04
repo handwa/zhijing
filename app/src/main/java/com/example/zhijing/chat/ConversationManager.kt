@@ -36,6 +36,10 @@ class ConversationManager(
     private val retrieval: RetrievalConfig? = null,
     /** 路由策略；默认纯端侧，云端需显式选择。 */
     private val routePolicy: RoutePolicy = FixedRoutePolicy(RoutePolicy.RouteMode.LOCAL_ONLY),
+    /** 端侧记忆策略；null 时用 [budget] 构造默认的 [LocalMemoryStrategy]。 */
+    private val localMemory: MemoryStrategy = LocalMemoryStrategy(budget),
+    /** 云端记忆策略；null 时用 [budget] 构造默认的 [CloudMemoryStrategy]。 */
+    private val cloudMemory: MemoryStrategy = CloudMemoryStrategy(budget),
 ) {
     private val compressor = ContextCompressor(budget)
 
@@ -43,6 +47,15 @@ class ConversationManager(
     private var working: MutableList<Turn> = mutableListOf()
     private var digest: String = ""
     private var systemPrompt: String = ""
+
+    /**
+     * 生成当前 [digest] 的那条记忆路径（`local` / `cloud`）。
+     *
+     * 端侧与云端的提要粒度不同（端侧 400 字、云端 2000 字），**混用会让提要被反复重写**。
+     * 记下来源，切到另一条路径时就知道该不该重压一次。
+     * 空串表示还没有提要。
+     */
+    private var digestBy: String = ""
 
     /**
      * 上下文尚未按当前会话重建。
@@ -89,6 +102,9 @@ class ConversationManager(
             ?: error("Conversation $convId not found")
 
         digest = snapshot.digest ?: ""
+        // 恢复时不知道原提要由哪条路径生成，标为 unknown；
+        // 之后若切到粒度为「粗」的那条（端侧），会按上限重新压一次。
+        digestBy = if (digest.isEmpty()) "" else UNKNOWN_DIGEST_SOURCE
 
         // 只取提要边界之后的消息；更早的内容已经并入 digest
         val history = conversations.messagesAfter(convId, snapshot.digestUpToSeq)
@@ -247,6 +263,16 @@ class ConversationManager(
     private fun engineName(engine: ChatEngine): String =
         if (engine === cloud) "cloud" else "local"
 
+    companion object {
+        /**
+         * 从数据库恢复的提要，来源未知。
+         *
+         * 存在的原因是：提要与生成它的策略绑定（端侧 400 字 / 云端 2000 字）。
+         * 恢复时无法从库里区分，只能标为 unknown，由后续压缩按当前策略校正。
+         */
+        private const val UNKNOWN_DIGEST_SOURCE = "unknown"
+    }
+
     /**
      * 检索本地收藏并把命中片段拼成带资料的提问文本。
      *
@@ -320,10 +346,20 @@ class ConversationManager(
      * 调用前 [working] 不应包含本轮刚发的用户消息，否则它会被
      * [rebuildContext] 和后续的 sendUserPrompt 各灌一次。
      *
+     * 记忆策略按 [engine] 选择：端侧走 [localMemory]（紧预算、短提要），
+     * 云端走 [cloudMemory]（宽预算、结构化摘要）。摘要失败时**自动降级**到
+     * 规则抽取（[ContextCompressor.extractFacts]），保证记忆不丢。
+     *
      * @return true 表示确实发生了压缩与重建
      */
     private suspend fun compressIfNeeded(engine: ChatEngine): Boolean {
-        if (working.sumOf { it.tokens } <= budget.history) return false
+        val memory = memoryFor(engine)
+
+        if (working.sumOf { it.tokens } <= memory.historyBudget.history) {
+            // 没有新轮次被挤出，但既有提要可能已经超限（上一轮用宽策略生成的）
+            compactOversizedDigest(memory, engine)
+            return false
+        }
 
         val kept = compressor.trim(working)
         if (kept.size == working.size) return false
@@ -331,10 +367,16 @@ class ConversationManager(
         val droppedCount = working.size - kept.size
         val dropped = working.take(droppedCount)
 
-        val facts = compressor.extractFacts(dropped)
-        if (facts.isNotEmpty()) {
-            digest = if (digest.isEmpty()) facts else "$digest；$facts"
+        // 先试模型摘要；失败/超时退回规则抽取 —— 质量可以降，记忆不能丢
+        val facts = summarizeFor(memory, dropped, engine)
+            ?: compressor.extractFacts(dropped).takeIf { it.isNotEmpty() }
+
+        val merged = when {
+            facts.isNullOrEmpty() -> digest
+            digest.isEmpty() -> facts
+            else -> "$digest；$facts"
         }
+        digest = compactIfNeeded(memory, merged, engine)
 
         working = kept.toMutableList()
 
@@ -344,6 +386,60 @@ class ConversationManager(
 
         rebuildContext(engine)
         return true
+    }
+
+    /** 按引擎选记忆策略：云端用云端策略，其余一律端侧策略。 */
+    private fun memoryFor(engine: ChatEngine): MemoryStrategy =
+        if (engine === cloud) cloudMemory else localMemory
+
+    /**
+     * 生成提要，失败返回 null（调用方据此降级）。
+     *
+     * 记下提要来源 [digestBy]，供切换模式时判断是否需要重压。
+     */
+    private suspend fun summarizeFor(
+        memory: MemoryStrategy,
+        dropped: List<Turn>,
+        engine: ChatEngine
+    ): String? {
+        val summary = memory.summarize(dropped, engine)
+        if (summary == null) {
+            Log.w("ConversationManager", "记忆摘要失败（${memory.name}），降级为规则抽取")
+            return null
+        }
+        digestBy = memory.name
+        return summary
+    }
+
+    /**
+     * 提要超长时压缩。**这是防「digest 无限增长」的关键**：
+     * 旧实现只会 `digest + "；" + facts`，压几次就又把窗口挤爆了。
+     *
+     * @param merged 待写入的完整提要
+     * @return 压缩后的提要；压缩失败则截断保留末尾（新信息更可能有用）
+     */
+    private suspend fun compactIfNeeded(
+        memory: MemoryStrategy,
+        merged: String,
+        engine: ChatEngine
+    ): String {
+        if (merged.length <= memory.digestMaxChars) return merged
+        val compacted = memory.compactDigest(existing = "", incoming = merged, engine = engine)
+        if (!compacted.isNullOrEmpty()) {
+            digestBy = memory.name
+            return compacted.take(memory.digestMaxChars)
+        }
+        Log.w("ConversationManager", "提要压缩失败（${memory.name}），截断保留末尾")
+        return merged.takeLast(memory.digestMaxChars)
+    }
+
+    /** 既有提要超出当前策略上限时（例如从云端切回端侧）压一次。 */
+    private suspend fun compactOversizedDigest(memory: MemoryStrategy, engine: ChatEngine) {
+        if (digest.length <= memory.digestMaxChars) return
+        digest = compactIfNeeded(memory, digest, engine)
+        // 边界不变：这里只改提要文本，不改变已压缩范围
+        val boundary = working.firstOrNull()?.seq?.minus(1) ?: 0
+        conversations.updateDigest(conversationId, digest, boundary)
     }
 
     /**

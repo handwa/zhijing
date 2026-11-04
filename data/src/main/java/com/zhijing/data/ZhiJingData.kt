@@ -7,12 +7,16 @@ import com.zhijing.data.repository.ConversationRepository
 import com.zhijing.data.repository.DefaultAssociationRepository
 import com.zhijing.data.repository.DefaultContentRepository
 import com.zhijing.data.repository.DefaultConversationRepository
+import com.zhijing.data.repository.DefaultKgClaimRepository
+import com.zhijing.data.repository.DefaultKgStateRepository
 import com.zhijing.data.repository.DefaultParseTaskRepository
 import com.zhijing.data.repository.DefaultPetStatusRepository
 import com.zhijing.data.repository.DefaultQaRecordRepository
 import com.zhijing.data.repository.DefaultStanceCompareRepository
 import com.zhijing.data.repository.DefaultTopicRepository
 import com.zhijing.data.repository.DefaultWakePlanRepository
+import com.zhijing.data.repository.KgClaimRepository
+import com.zhijing.data.repository.KgStateRepository
 import com.zhijing.data.repository.ParseTaskRepository
 import com.zhijing.data.repository.PetStatusRepository
 import com.zhijing.data.repository.QaRecordRepository
@@ -60,6 +64,20 @@ class ZhiJingData internal constructor(private val db: ZhijingDatabase) {
 
     /** 解析队列（说明书 4.2.2）。 */
     val parseTasks: ParseTaskRepository = DefaultParseTaskRepository(db)
+
+    /**
+     * 知识图谱：命题探测状态（深度侧 → 广度侧的回写）。
+     *
+     * 出厂命题在 `assets/kg/graph.json`，本仓库只存状态，回写走派生。
+     */
+    val kgStates: KgStateRepository = DefaultKgStateRepository(db)
+
+    /**
+     * 知识图谱：云端 / 用户产生的增量命题与同义合并映射。
+     *
+     * 未确认的候选不会出现在任何广度视图里（见 [KgClaimRepository.observeConfirmed]）。
+     */
+    val kgClaims: KgClaimRepository = DefaultKgClaimRepository(db)
 
     /** 关闭数据库并释放单例。之后再次 [get] 会重新打开。 */
     fun close() {
