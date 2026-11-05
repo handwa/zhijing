@@ -1,0 +1,362 @@
+package com.example.zhijing.kg.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.example.zhijing.kg.GraphCard
+import com.example.zhijing.kg.GraphClaim
+import com.example.zhijing.ui.theme.ZjRadius
+import com.example.zhijing.ui.theme.ZjSpace
+
+/**
+ * 广度视图的一张卡片。
+ *
+ * 信息密度的取舍（设计文档「卡片信息密度上限」）：
+ * **默认只显示 4 项** —— 标题+角标、摘要、交叉链接、下钻按钮。
+ * 正文折叠成「展开全文」，易错注记只在真有易错时出现。
+ *
+ * 理由：广度图谱第一目标是**可读**，八项信息堆满的卡片不可读。
+ */
+@Composable
+fun GraphCardView(
+    card: GraphCard,
+    breadcrumb: String,
+    onDescend: () -> Unit,
+    onOpenCrossLink: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember(card.id) { mutableStateOf(false) }
+    val badge = card.badgeStatus
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(ZjRadius.md),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    ) {
+        Row {
+            // 左侧「叶脉书签」竖条：颜色即状态
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(if (expanded) 220.dp else 96.dp)
+                    .background(
+                        badge?.let { StatusVisual.color(it) }
+                            ?: MaterialTheme.colorScheme.outlineVariant
+                    )
+            )
+            Column(Modifier.padding(ZjSpace.lg)) {
+                // 标题行 + 角标
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = card.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    badge?.let { StatusBadge(it, compact = true) }
+                }
+
+                Spacer(Modifier.height(ZjSpace.xs))
+
+                // 面包屑（大纲标题链）
+                if (breadcrumb.isNotBlank()) {
+                    Text(
+                        text = breadcrumb,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // 摘要：与正文首段重复时不重复显示
+                if (card.summary.isNotBlank() && !card.body.startsWith(card.summary)) {
+                    Spacer(Modifier.height(ZjSpace.sm))
+                    Text(
+                        text = card.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // 正文：默认折叠
+                if (expanded && card.body.isNotBlank()) {
+                    Spacer(Modifier.height(ZjSpace.sm))
+                    Text(
+                        text = card.body,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                // 易错点注记：只在有易错时出现（让卡片「变厚」）
+                val notes = card.misconceptionNotes
+                if (notes.isNotEmpty()) {
+                    Spacer(Modifier.height(ZjSpace.sm))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            color = StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED),
+                            shape = RoundedCornerShape(2.dp),
+                            modifier = Modifier.size(width = 3.dp, height = 14.dp),
+                        ) {}
+                        Spacer(Modifier.width(ZjSpace.sm))
+                        Text(
+                            text = "易错：${notes.first()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED),
+                        )
+                    }
+                }
+
+                // 交叉链接：封顶 5 条，按权重降序
+                if (card.crossLinks.isNotEmpty()) {
+                    Spacer(Modifier.height(ZjSpace.sm))
+                    Text(
+                        text = "关联：" + card.crossLinks.take(5).joinToString(" · ") { it.label },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                // 底部动作
+                Spacer(Modifier.height(ZjSpace.sm))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (card.body.isNotBlank()) {
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(if (expanded) "收起" else "展开全文")
+                        }
+                    } else {
+                        Spacer(Modifier.width(1.dp))
+                    }
+                    if (card.descendable) {
+                        TextButton(onClick = onDescend) {
+                            Text("下钻 ${card.claims.size} 条命题")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 一张卡的深度面板内容：判断列表。
+ *
+ * 第一屏原则：**只有一句话命题 + 两个按钮**，条件与解释在作答后才展开。
+ * 这不是风格问题，是产品原则 —— 用户没有参照物，多给一个信息他就不知道该干什么。
+ */
+@Composable
+fun ClaimJudgementView(
+    claim: GraphClaim,
+    index: Int,
+    total: Int,
+    onAnswered: (correct: Boolean) -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var answered by remember(claim.id) { mutableStateOf<Boolean?>(null) }
+
+    Column(modifier.padding(ZjSpace.lg)) {
+        // 顶栏：进度 + 关闭
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "第 ${index + 1} / $total 条 · ${StatusVisual.label(claim.probe.probeStatus)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClose) { Text("关闭") }
+        }
+
+        Spacer(Modifier.height(ZjSpace.lg))
+
+        // 第一屏唯一文案：命题
+        Text(
+            text = claim.question,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(ZjSpace.md))
+        Text(
+            text = claim.statement,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Medium,
+        )
+
+        if (answered == null) {
+            Spacer(Modifier.height(ZjSpace.md))
+            Text(
+                text = "先自己判断，条件与边界在作答之后才展开。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(ZjSpace.xl))
+            // 只有两个按钮
+            Row(horizontalArrangement = Arrangement.spacedBy(ZjSpace.md)) {
+                Surface(
+                    onClick = {
+                        answered = true
+                        onAnswered(claim.expected)
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) { Text("成立") }
+                }
+                Surface(
+                    onClick = {
+                        answered = false
+                        onAnswered(!claim.expected)
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline
+                    ),
+                ) {
+                    Box(contentAlignment = Alignment.Center) { Text("不成立") }
+                }
+            }
+        } else {
+            // 揭示屏：判定 → 为什么 → 条件 → 错点 → 误解
+            Spacer(Modifier.height(ZjSpace.lg))
+            RevealSection(claim, judgedCorrect = answered!!)
+            Spacer(Modifier.height(ZjSpace.lg))
+            Row(horizontalArrangement = Arrangement.spacedBy(ZjSpace.md)) {
+                TextButton(onClick = onNext, modifier = Modifier.weight(1f)) {
+                    Text("下一条")
+                }
+                TextButton(onClick = onClose, modifier = Modifier.weight(1f)) {
+                    Text("返回卡片")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RevealSection(claim: GraphClaim, judgedCorrect: Boolean) {
+    val verdictColor = if (judgedCorrect) {
+        StatusVisual.color(com.zhijing.data.model.ProbeStatus.MASTERED)
+    } else {
+        StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED)
+    }
+
+    // 判定条
+    Text(
+        text = if (judgedCorrect) {
+            "✓ 判断正确 —— 这条命题的结论是「${if (claim.expected) "成立" else "不成立"}」"
+        } else {
+            "✗ 撞错了 —— 正确结论是「${if (claim.expected) "成立" else "不成立"}」"
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = verdictColor,
+        fontWeight = FontWeight.Medium,
+    )
+
+    if (claim.explanation.isNotBlank()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("为什么")
+        Text(claim.explanation, style = MaterialTheme.typography.bodyMedium)
+    }
+
+    if (claim.conditions.isNotEmpty()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("成立条件")
+        claim.conditions.forEach { cond ->
+            Text(
+                "· $cond",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    // 错点归因：**最有价值的一屏**
+    if (claim.errorKinds.isNotEmpty()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("错点落在哪条依赖上")
+        claim.errorKinds.forEach { ek ->
+            Row(
+                Modifier.padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(ZjSpace.sm),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = "${kindLabel(ek.kind)}依赖",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Text(
+                    ek.why,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+
+    if (claim.evidence.isNotBlank()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("原文依据")
+        Text(
+            claim.evidence,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(ZjSpace.xs))
+}
+
+/** 五类依赖的中文名。 */
+fun kindLabel(kind: String): String = when (kind) {
+    "shape" -> "形状"
+    "range" -> "值域"
+    "statistics" -> "统计量"
+    "gradient" -> "梯度"
+    "semantic" -> "语义"
+    else -> kind
+}

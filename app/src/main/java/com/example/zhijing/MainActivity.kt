@@ -55,7 +55,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
@@ -100,6 +103,8 @@ import com.example.zhijing.kg.GraphMode
 import com.example.zhijing.kg.GraphModeStore
 import com.example.zhijing.kg.GraphAssembler
 import com.example.zhijing.kg.GraphUpdateCoordinator
+import com.example.zhijing.kg.ui.GraphScreen
+import com.example.zhijing.kg.ui.GraphTestScreen
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.RuntimeClaim
 import com.zhijing.data.repository.ConversationEntitySnapshot
@@ -131,6 +136,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * 应用内的主界面。
+ *
+ * 刻意用简单枚举而不是 Navigation 组件：目前只有三个平级页面，
+ * 引入导航图反而增加依赖与样板代码。页内下钻（判断面板）走 Dialog 覆盖层，
+ * **不**是第四个页面 —— 这是设计文档的硬约束。
+ */
+private enum class AppScreen { CHAT, GRAPH, GRAPH_TEST }
 
 /**
  * 云服务商的运行期选择器。
@@ -201,10 +215,32 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     var pendingCandidates by remember { mutableStateOf<List<RuntimeClaim>>(emptyList()) }
     var showPendingClaims by remember { mutableStateOf(false) }
 
+    // --- 图谱页面与测试 ---
+    var screen by remember { mutableStateOf(AppScreen.CHAT) }
+    var mergedGraph by remember { mutableStateOf<com.example.zhijing.kg.MergedGraph?>(null) }
+    var graphLoading by remember { mutableStateOf(false) }
+    // 测试页状态
+    var testText by remember { mutableStateOf("") }
+    var testResult by remember {
+        mutableStateOf<com.example.zhijing.kg.GraphComparisonRunner.ComparisonResult?>(null)
+    }
+    var testRunning by remember { mutableStateOf(false) }
+    val comparisonRunner = remember { com.example.zhijing.kg.GraphComparisonRunner() }
+
     // 候选队列变化时刷新计数；图谱模式或云端配置变化也要重取
     LaunchedEffect(graphMode, cloudProvider) {
         runCatching {
             graphAssembler.observePendingCandidates().collect { pendingCandidates = it }
+        }
+    }
+
+    // 图谱页面数据：进入图谱页或模式变化时重新加载。
+    // 离线模式不查询增量命题表，由 assembler 内部保证。
+    LaunchedEffect(screen, graphMode) {
+        if (screen == AppScreen.GRAPH) {
+            graphLoading = true
+            mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
+            graphLoading = false
         }
     }
 
@@ -395,6 +431,14 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     scope.launch { drawerState.close() }
                     showPendingClaims = true
                 },
+                onOpenGraph = {
+                    scope.launch { drawerState.close() }
+                    screen = AppScreen.GRAPH
+                },
+                onOpenGraphTest = {
+                    scope.launch { drawerState.close() }
+                    screen = AppScreen.GRAPH_TEST
+                },
                 onNewChat = {
                     scope.launch {
                         drawerState.close()
@@ -447,29 +491,41 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     title = {
                         Column {
                             Text(
-                                busyName ?: "知境",
+                                when (screen) {
+                                    AppScreen.CHAT -> busyName ?: "知境"
+                                    AppScreen.GRAPH -> "知识图谱"
+                                    AppScreen.GRAPH_TEST -> "图谱生成测试"
+                                },
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            Text(
-                                text = if (modelReady) {
-                                    val where = when {
-                                        cloudRuntime.routeMode == RoutePolicy.RouteMode.LOCAL_ONLY || cloudProvider == null ->
-                                            spec.displayName
-                                        cloudRuntime.routeMode == RoutePolicy.RouteMode.CLOUD_ONLY ->
-                                            "${cloudProvider?.displayName} · ${cloudProvider?.model}"
-                                        else -> "${spec.displayName} → ${cloudProvider?.displayName}"
-                                    }
-                                    "$where · ${conversations.size} 个会话"
-                                } else "正在加载模型…",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (screen == AppScreen.CHAT) {
+                                Text(
+                                    text = if (modelReady) {
+                                        val where = when {
+                                            cloudRuntime.routeMode == RoutePolicy.RouteMode.LOCAL_ONLY || cloudProvider == null ->
+                                                spec.displayName
+                                            cloudRuntime.routeMode == RoutePolicy.RouteMode.CLOUD_ONLY ->
+                                                "${cloudProvider?.displayName} · ${cloudProvider?.model}"
+                                            else -> "${spec.displayName} → ${cloudProvider?.displayName}"
+                                        }
+                                        "$where · ${conversations.size} 个会话"
+                                    } else "正在加载模型…",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "会话列表")
+                        if (screen != AppScreen.CHAT) {
+                            IconButton(onClick = { screen = AppScreen.CHAT }) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                            }
+                        } else {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "会话列表")
+                            }
                         }
                     },
                     actions = {
@@ -496,7 +552,50 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 )
             }
         ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        when (screen) {
+            AppScreen.GRAPH -> {
+                GraphScreen(
+                    graph = mergedGraph,
+                    loading = graphLoading,
+                    onJudge = { claimId, correct, misconception ->
+                        scope.launch {
+                            data.kgStates.recordJudgement(claimId, correct, misconception)
+                            // 重取图谱：状态回写走派生，广度侧角标随之更新
+                            mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                )
+            }
+
+            AppScreen.GRAPH_TEST -> {
+                GraphTestScreen(
+                    text = testText,
+                    onTextChange = { testText = it },
+                    result = testResult,
+                    running = testRunning,
+                    hasCloud = cloudProvider != null,
+                    onRun = {
+                        scope.launch {
+                            testRunning = true
+                            testResult = null
+                            try {
+                                testResult = comparisonRunner.compare(
+                                    text = testText,
+                                    path = "content.test",
+                                    provider = cloudProvider,
+                                    topicHint = "对比测试"
+                                )
+                            } finally {
+                                testRunning = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                )
+            }
+
+            AppScreen.CHAT -> Column(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -609,6 +708,7 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                 )
             }
         }
+            }
         }
     }
 
@@ -1291,6 +1391,8 @@ private fun ChatDrawer(
     onSelect: (ConversationEntitySnapshot) -> Unit,
     onImport: () -> Unit,
     onOpenPending: () -> Unit,
+    onOpenGraph: () -> Unit,
+    onOpenGraphTest: () -> Unit,
     onSettings: () -> Unit,
 ) {
     ModalDrawerSheet {
@@ -1373,6 +1475,16 @@ private fun ChatDrawer(
 
         HorizontalDivider()
         // 底部功能区
+        DrawerBottomItem(
+            icon = Icons.Default.AccountBox,
+            label = "知识图谱",
+            onClick = onOpenGraph,
+        )
+        DrawerBottomItem(
+            icon = Icons.Default.Build,
+            label = "图谱生成测试",
+            onClick = onOpenGraphTest,
+        )
         DrawerBottomItem(Icons.Default.AddCircle, "导入文档", onImport, enabled = enabled)
         DrawerBottomItem(
             icon = Icons.Default.CheckCircle,
