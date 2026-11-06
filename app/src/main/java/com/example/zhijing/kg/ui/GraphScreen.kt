@@ -68,6 +68,10 @@ fun GraphScreen(
     var selectedOutline by remember { mutableStateOf<String?>(null) }
     var descendCardId by remember { mutableStateOf<String?>(null) }
     var claimIndex by remember { mutableIntStateOf(0) }
+    // 视图形态：卡片流（默认，好读）或结构图（看关系）。
+    // 刻意做成**同一个页面的两种呈现**，而不是两个一级 tab ——
+    // 结构图与广度视图功能重叠（都是"看关系找位置"），并列会让导航变乱。
+    var viewMode by remember { mutableStateOf(GraphViewMode.CARDS) }
 
     if (loading || graph == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -99,7 +103,38 @@ fun GraphScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
+            // 视图切换：树 / 图
+            TextButton(onClick = {
+                viewMode = if (viewMode == GraphViewMode.CARDS) GraphViewMode.TREE else GraphViewMode.CARDS
+            }) {
+                Text(if (viewMode == GraphViewMode.CARDS) "结构图" else "卡片流")
+            }
             StatusSummaryChips(graph)
+        }
+
+        // 结构图：与卡片流互斥呈现
+        if (viewMode == GraphViewMode.TREE) {
+            GraphTreeView(
+                graph = graph,
+                onCardClick = { cardId ->
+                    val card = graph.cards.firstOrNull { it.id == cardId }
+                    if (card != null && card.claims.isNotEmpty()) {
+                        descendCardId = cardId
+                        claimIndex = 0
+                    }
+                },
+                modifier = Modifier.weight(1f),
+            )
+            // 结构图模式下仍要能下钻，复用下面的 Dialog 逻辑
+            DescendDialog(
+                graph = graph,
+                cardId = descendCardId,
+                claimIndex = claimIndex,
+                onIndexChange = { claimIndex = it },
+                onClose = { descendCardId = null },
+                onJudge = onJudge,
+            )
+            return
         }
 
         // ---- 大纲：横向 chips ----
@@ -171,51 +206,79 @@ fun GraphScreen(
     }
 
     // ---- 深度下钻：覆盖层（不是并列入口，没有独立路由）----
-    val card = descendCardId?.let { id -> graph.cards.firstOrNull { it.id == id } }
-    if (card != null && card.claims.isNotEmpty()) {
-        val ordered = graph.claimsByPriority(card.id)
-        val current = ordered.getOrNull(claimIndex.coerceIn(0, ordered.lastIndex))
+    DescendDialog(
+        graph = graph,
+        cardId = descendCardId,
+        claimIndex = claimIndex,
+        onIndexChange = { claimIndex = it },
+        onClose = { descendCardId = null },
+        onJudge = onJudge,
+    )
+}
 
-        Dialog(
-            onDismissRequest = { descendCardId = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+/**
+ * 深度下钻的覆盖层。
+ *
+ * 提成独立组件的原因：卡片流与结构图两种呈现**都要能下钻**，
+ * 而深度面板本身只有一份实现 —— 避免两种视图各写一遍判断面板。
+ */
+@Composable
+private fun DescendDialog(
+    graph: MergedGraph,
+    cardId: String?,
+    claimIndex: Int,
+    onIndexChange: (Int) -> Unit,
+    onClose: () -> Unit,
+    onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
+) {
+    val card = cardId?.let { id -> graph.cards.firstOrNull { it.id == id } }
+    if (card == null || card.claims.isEmpty()) return
+
+    val ordered = graph.claimsByPriority(card.id)
+    val current = ordered.getOrNull(claimIndex.coerceIn(0, ordered.lastIndex))
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
         ) {
-            Surface(
-                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp,
-            ) {
-                LazyColumn(Modifier.padding(bottom = ZjSpace.lg)) {
+            LazyColumn(Modifier.padding(bottom = ZjSpace.lg)) {
+                item {
+                    Text(
+                        text = card.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(
+                            horizontal = ZjSpace.lg,
+                            vertical = ZjSpace.md
+                        ),
+                    )
+                }
+                if (current != null) {
                     item {
-                        Text(
-                            text = card.title,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(
-                                horizontal = ZjSpace.lg,
-                                vertical = ZjSpace.md
-                            ),
+                        ClaimJudgementView(
+                            claim = current,
+                            index = claimIndex,
+                            total = ordered.size,
+                            onAnswered = { correct ->
+                                onJudge(current.id, correct, current.misconception.takeIf { it.isNotBlank() })
+                            },
+                            onNext = { if (claimIndex + 1 < ordered.size) onIndexChange(claimIndex + 1) },
+                            onClose = onClose,
                         )
-                    }
-                    if (current != null) {
-                        item {
-                            ClaimJudgementView(
-                                claim = current,
-                                index = claimIndex,
-                                total = ordered.size,
-                                onAnswered = { correct ->
-                                    onJudge(current.id, correct, current.misconception.takeIf { it.isNotBlank() })
-                                },
-                                onNext = { if (claimIndex + 1 < ordered.size) claimIndex++ },
-                                onClose = { descendCardId = null },
-                            )
-                        }
                     }
                 }
             }
         }
     }
 }
+
+/** 图谱页的两种呈现。 */
+private enum class GraphViewMode { CARDS, TREE }
 
 /**
  * 顶栏四态芯片。

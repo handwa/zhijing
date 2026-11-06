@@ -1,4 +1,4 @@
-﻿package com.example.zhijing
+package com.example.zhijing
 
 import android.content.Context
 import android.os.Bundle
@@ -529,24 +529,30 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         }
                     },
                     actions = {
-                        // 新建对话
-                        IconButton(
-                            onClick = {
-                                val m = manager ?: return@IconButton
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        engine.cancelGenerationAndAwaitReady()
-                                        m.newConversation()
-                                        rebuildMessageList(m, messages)
-                                    } finally {
-                                        busy = false
+                        if (screen == AppScreen.CHAT) {
+                            // 新建对话
+                            IconButton(
+                                onClick = {
+                                    val m = manager ?: return@IconButton
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            engine.cancelGenerationAndAwaitReady()
+                                            m.newConversation()
+                                            rebuildMessageList(m, messages)
+                                        } finally {
+                                            busy = false
+                                        }
                                     }
-                                }
-                            },
-                            enabled = modelReady && !busy && !isGenerating,
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "新建对话")
+                                },
+                                enabled = modelReady && !busy && !isGenerating,
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "新建对话")
+                            }
+                        }
+                        // 设置：任何页面都能打开，且设置页本身就是功能导航中心
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "设置")
                         }
                     },
                 )
@@ -759,26 +765,91 @@ fun ChatScreen(modifier: Modifier = Modifier) {
             onDismissRequest = { showSettings = false },
             title = { Text("设置") },
             text = {
-                Column {
-                    Text("模型：${spec.displayName}", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(6.dp))
-                    Text("上下文：${spec.contextSize} tokens", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(6.dp))
-                    Text("嵌入：${ModelRegistry.embedding().id}", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "支持导入：" + DocumentParsers.supportedExtensions.sorted().joinToString(" / "),
-                        style = MaterialTheme.typography.bodyMedium,
+                Column(
+                    Modifier
+                        .verticalScroll(rememberScrollState())
+                        .heightIn(max = 520.dp)
+                ) {
+                    // ---------------- 功能入口 ----------------
+                    // 设置页作为功能导航中心：用户不必记住侧边栏的层层菜单，
+                    // 从任何地方打开设置都能直达任一功能页。
+                    SettingsSectionTitle("功能")
+                    SettingsNavRow(
+                        icon = Icons.Default.AccountBox,
+                        title = "知识图谱",
+                        subtitle = "认知庭院：卡片流 / 结构图，下钻判断",
+                        onClick = {
+                            showSettings = false
+                            screen = AppScreen.GRAPH
+                        },
                     )
+                    SettingsNavRow(
+                        icon = Icons.Default.Build,
+                        title = "图谱生成测试",
+                        subtitle = "本地规则 vs 云端大模型的生成对比",
+                        onClick = {
+                            showSettings = false
+                            screen = AppScreen.GRAPH_TEST
+                        },
+                    )
+                    SettingsNavRow(
+                        icon = Icons.Default.CheckCircle,
+                        title = "待确认命题",
+                        subtitle = if (pendingCandidates.isEmpty()) "暂无待审核的候选"
+                        else "${pendingCandidates.size} 条候选等待确认",
+                        onClick = {
+                            showSettings = false
+                            showPendingClaims = true
+                        },
+                    )
+                    SettingsNavRow(
+                        icon = Icons.Default.AddCircle,
+                        title = "导入文档",
+                        subtitle = DocumentParsers.supportedExtensions.sorted().joinToString(" / "),
+                        onClick = {
+                            showSettings = false
+                            importLauncher.launch(DocumentParsers.supportedMimeTypes)
+                        },
+                    )
+
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
+
+                    // ---------------- 图谱模式 ----------------
+                    SettingsSectionTitle("知识图谱来源")
                     Text(
-                        if (cloudProvider == null) "云端大模型：未配置" else
-                            "云端大模型：${cloudProvider?.displayName} · ${cloudProvider?.model}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "当前：${graphMode.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
+                    Text(
+                        when (graphMode) {
+                            GraphMode.OFFLINE -> "只读预置图谱，阅读与判断完全可用，不联网。"
+                            GraphMode.CLOUD_ENHANCED ->
+                                "AI 会把你收藏的原文发给服务商，抽成命题；新命题需你确认后才进图谱。"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = {
+                        showSettings = false
+                        showGraphSettings = true
+                    }) {
+                        Text("切换图谱模式")
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(Modifier.height(12.dp))
+
+                    // ---------------- 云端大模型 ----------------
+                    SettingsSectionTitle(
+                        if (cloudProvider == null) "云端大模型（未配置）"
+                        else "云端大模型：${cloudProvider?.displayName} · ${cloudProvider?.model}"
+                    )
                     Text(
                         if (cloudProvider == null) {
                             "配置后可选择走云端。请确认你愿意把提问内容发给该服务商。"
@@ -799,23 +870,16 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                     }) {
                         Text(if (cloudProvider == null) "配置云端大模型" else "管理云端大模型")
                     }
+
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
-                    Text("知识图谱来源", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "当前：${graphMode.label}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = {
-                        showSettings = false
-                        showGraphSettings = true
-                    }) {
-                        Text("设置图谱模式")
-                    }
+
+                    // ---------------- 本机信息 ----------------
+                    SettingsSectionTitle("本机模型")
+                    Text("模型：${spec.displayName}", style = MaterialTheme.typography.labelSmall)
+                    Text("上下文：${spec.contextSize} tokens", style = MaterialTheme.typography.labelSmall)
+                    Text("嵌入：${ModelRegistry.embedding().id}", style = MaterialTheme.typography.labelSmall)
                 }
             },
             confirmButton = {
@@ -1066,6 +1130,63 @@ private fun PendingClaimsDialog(
 
 /** 未配置时的表单初值：DeepSeek 预设，密钥留空。 */
 private val cloudFormDefaults: CloudProvider = CloudProvider.DEEPSEEK
+
+/** 设置页的分组小标题。 */
+@Composable
+private fun SettingsSectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+}
+
+/**
+ * 设置页里的功能入口行。
+ *
+ * 用整行可点击而不是 `TextButton`：入口要带副标题说明用途，
+ * 纯文字按钮既占位小又看不出是什么。
+ */
+@Composable
+private fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            "›",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
 
 /**
  * 图谱来源模式选择。

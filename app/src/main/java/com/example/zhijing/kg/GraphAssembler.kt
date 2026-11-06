@@ -200,7 +200,11 @@ class GraphAssembler(
             )
         }
 
-        // 3) 卡片：挂上命题，并算角标
+        // 3) 卡片：挂上命题、前置关系，并算角标
+        //    前置关系指向本卡（to == 本卡 id），即「学本卡之前要先学哪些卡」
+        val prereqByCard: Map<String, List<PrerequisiteLink>> =
+            bundled.prerequisites.groupBy { it.to }
+
         val cards = bundled.cards.map { raw ->
             val cardClaims = claims.values.filter { it.cardId == raw.id }
             GraphCard(
@@ -212,7 +216,8 @@ class GraphAssembler(
                 chain = raw.chain,
                 crossLinks = raw.crossLinks,
                 claims = cardClaims,
-                badgeStatus = MergedGraph.badgeOf(cardClaims.map { c -> c.probe.probeStatus })
+                badgeStatus = MergedGraph.badgeOf(cardClaims.map { c -> c.probe.probeStatus }),
+                prerequisites = prereqByCard[raw.id].orEmpty()
             )
         }
 
@@ -259,7 +264,15 @@ data class ParsedGraph(
     val outline: List<RawOutline>,
     val cards: List<RawCard>,
     val claims: List<RawClaim>,
-    val edges: List<GraphEdge>
+    val edges: List<GraphEdge>,
+    /**
+     * 卡片级前置关系（必须 / 推荐）。
+     *
+     * 来自顶层 `prerequisites` 字段。**缺省为空** ——
+     * 老图谱没有这个字段时照常加载，只是结构图上没有前置连线。
+     * 形态：`[{"from":"crd.a","to":"crd.b","kind":"required","reason":"..."}]`
+     */
+    val prerequisites: List<PrerequisiteLink> = emptyList()
 ) {
     companion object {
         /**
@@ -356,13 +369,28 @@ data class ParsedGraph(
                 )
             }
 
+            // 卡片级前置关系：顶层字段，缺省为空（老数据兼容）
+            val prerequisites = root.list("prerequisites").mapNotNull { item ->
+                val m = item.asMap()
+                val from = m.str("from") ?: return@mapNotNull null
+                val to = m.str("to") ?: return@mapNotNull null
+                if (from == to) return@mapNotNull null
+                PrerequisiteLink(
+                    from = from,
+                    to = to,
+                    kind = PrerequisiteKind.fromWire(m.str("kind")),
+                    reason = m.strOrEmpty("reason")
+                )
+            }
+
             return ParsedGraph(
                 schemaVersion = meta.strOrEmpty("schemaVersion"),
                 generatedAt = meta.strOrEmpty("generatedAt"),
                 outline = outline,
                 cards = cards,
                 claims = claims,
-                edges = edges
+                edges = edges,
+                prerequisites = prerequisites
             )
         }
     }

@@ -11,6 +11,52 @@ import com.zhijing.data.model.ProbeStatus
  * - [claims]：已合并出厂命题与已确认的云端增量命题；
  * - [probe]：从 Room 派生的状态（广度侧不存储状态，只派生）。
  */
+/**
+ * 卡片之间的一条前置关系。
+ *
+ * **与交叉链接（[CrossLink]）是两种东西**：
+ *
+ * | | 交叉链接 | 前置关系 |
+ * |---|---|---|
+ * | 含义 | 两张卡「有关」 | 学这张卡**之前**要先学那张 |
+ * | 方向 | 无向 | 有向（`from` 必须先于 `to`） |
+ * | 来源 | 词共现，本地算 | 模型推断 |
+ * | 视觉 | 细虚线 | 必须 = 实线，推荐 = 虚线 |
+ *
+ * @param from 前置卡的 ID（先学这张）
+ * @param to 依赖卡的 ID（后学这张）
+ * @param kind 必须 / 推荐
+ * @param reason 为什么存在这条前置（模型给的一句话，可为空）
+ */
+data class PrerequisiteLink(
+    val from: String,
+    val to: String,
+    val kind: PrerequisiteKind,
+    val reason: String = ""
+)
+
+/** 前置的强度。 */
+enum class PrerequisiteKind(val wire: String, val label: String) {
+    /** 不先学就学不懂。实线。 */
+    REQUIRED("required", "必须前置"),
+
+    /** 有帮助，但不学也能跟上。虚线。 */
+    RECOMMENDED("recommended", "推荐前置");
+
+    companion object {
+        fun fromWire(wire: String?): PrerequisiteKind =
+            entries.firstOrNull { it.wire.equals(wire, ignoreCase = true) } ?: RECOMMENDED
+    }
+}
+
+/**
+ * 广度视图的一张卡片（渲染用，已与运行时数据合并）。
+ *
+ * 与 assets 里的 `card` 相比多出：
+ * - [claims]：已合并出厂命题与已确认的云端增量命题；
+ * - [badgeStatus]：从 Room 派生的状态（广度侧不存储状态，只派生）；
+ * - [prerequisites]：卡片级前置关系（必须 / 推荐）。
+ */
 data class GraphCard(
     val id: String,
     val title: String,
@@ -26,7 +72,9 @@ data class GraphCard(
      *
      * 这样用户扫一眼大纲就知道：哪张卡里还有易错没解除、哪张卡还没碰过。
      */
-    val badgeStatus: ProbeStatus? = null
+    val badgeStatus: ProbeStatus? = null,
+    /** 前置关系：本卡**依赖**的卡片（`to` 指向本卡）。 */
+    val prerequisites: List<PrerequisiteLink> = emptyList()
 ) {
     /** 是否可下钻：只有挂了命题的叶子卡才有下钻入口。 */
     val descendable: Boolean get() = claims.isNotEmpty()

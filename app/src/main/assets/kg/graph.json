@@ -4045,5 +4045,133 @@
       ],
       "claimCount": 0
     }
+  ],
+  "prerequisites": [
+    {
+      "from": "crd.s1-1-linear",
+      "to": "crd.s1-2-relu",
+      "kind": "required",
+      "reason": "ReLU 作用在 Linear 的输出上"
+    },
+    {
+      "from": "crd.s1-1-linear",
+      "to": "crd.s1-3-softmax",
+      "kind": "required",
+      "reason": "Softmax 的输入是线性层的 logits"
+    },
+    {
+      "from": "crd.s1-3-softmax",
+      "to": "crd.s1-4",
+      "kind": "required",
+      "reason": "交叉熵内部做 log-softmax"
+    },
+    {
+      "from": "crd.s1-1-linear",
+      "to": "crd.s2-1",
+      "kind": "required",
+      "reason": "形状依赖用矩阵乘举例"
+    },
+    {
+      "from": "crd.s1-3-softmax",
+      "to": "crd.s2-2",
+      "kind": "required",
+      "reason": "值域依赖以 Softmax 输出为例"
+    },
+    {
+      "from": "crd.s1-2-relu",
+      "to": "crd.s2-4",
+      "kind": "required",
+      "reason": "梯度路径依赖以 ReLU 死区为例"
+    },
+    {
+      "from": "crd.s1-2-relu",
+      "to": "crd.s2-5",
+      "kind": "recommended",
+      "reason": "语义依赖的典型反例来自 ReLU"
+    },
+    {
+      "from": "crd.s2-1",
+      "to": "crd.s2-5",
+      "kind": "recommended",
+      "reason": "先理解形状依赖，才能对比语义依赖"
+    },
+    {
+      "from": "crd.s1-1-linear",
+      "to": "crd.s3-1-layernorm-batchnorm",
+      "kind": "required",
+      "reason": "归一化作用在层输出上"
+    },
+    {
+      "from": "crd.s2-3",
+      "to": "crd.s3-1-layernorm-batchnorm",
+      "kind": "required",
+      "reason": "LN/BN 的差别就是统计量维度"
+    },
+    {
+      "from": "crd.s3-1-layernorm-batchnorm",
+      "to": "crd.s3-3-pre-ln-post-ln",
+      "kind": "required",
+      "reason": "Pre/Post-LN 以 LN 位置区分"
+    },
+    {
+      "from": "crd.s2-1",
+      "to": "crd.s3-2",
+      "kind": "required",
+      "reason": "残差相加要求主分支与捷径同形状"
+    },
+    {
+      "from": "crd.s2-4",
+      "to": "crd.s3-2",
+      "kind": "recommended",
+      "reason": "残差的意义在于提供梯度通路"
+    },
+    {
+      "from": "crd.s3-2",
+      "to": "crd.s3-3-pre-ln-post-ln",
+      "kind": "required",
+      "reason": "Pre/Post-LN 讨论的是归一化相对残差的位置"
+    },
+    {
+      "from": "crd.s1-3-softmax",
+      "to": "crd.s4-1",
+      "kind": "required",
+      "reason": "缩放点积注意力用 Softmax 归一化得分"
+    },
+    {
+      "from": "crd.s1-1-linear",
+      "to": "crd.s4-1",
+      "kind": "required",
+      "reason": "注意力的 Q/K/V 都是线性投影"
+    },
+    {
+      "from": "crd.s4-1",
+      "to": "crd.s4-2",
+      "kind": "required",
+      "reason": "掩码作用在注意力得分上"
+    },
+    {
+      "from": "crd.s1-3-softmax",
+      "to": "crd.s4-2",
+      "kind": "recommended",
+      "reason": "掩码必须在 Softmax 之前生效"
+    },
+    {
+      "from": "crd.s4-1",
+      "to": "crd.s4-3",
+      "kind": "required",
+      "reason": "多头注意力是缩放点积注意力的并行版"
+    },
+    {
+      "from": "crd.s2-1",
+      "to": "crd.s4-3",
+      "kind": "recommended",
+      "reason": "多头拼接依赖形状对齐"
+    },
+    {
+      "from": "crd.s4-1",
+      "to": "crd.s4-4",
+      "kind": "recommended",
+      "reason": "位置编码常与注意力一起理解"
+    }
   ]
 }
