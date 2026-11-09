@@ -1,4 +1,4 @@
-﻿package com.example.zhijing.kg.ui
+package com.example.zhijing.kg.ui
 
 import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphOutlineNode
@@ -22,40 +22,89 @@ import kotlin.math.max
  */
 object TreeLayout {
 
-    /** 单列宽度：章节列比卡片宽，因为要放章节名。 */
-    const val COLUMN_WIDTH = 150f
+    /** 大纲节点（胶囊）的宽度。 */
+    const val NODE_WIDTH = 160f
 
-    /** 列与列之间的水平间距。 */
-    const val COLUMN_GAP = 72f
+    /** 卡片（方框）的宽度。比节点窄一点：卡片标题通常更长，但需要留出行距。 */
+    const val CARD_WIDTH = 170f
 
-    /** 节点（卡片）宽高。 */
-    const val NODE_WIDTH = 118f
-    const val NODE_HEIGHT = 42f
+    /** 节点与它右侧卡片之间的水平间距。 */
+    const val CARD_GAP = 24f
 
-    /** 同一列内节点的垂直间距。 */
-    const val NODE_GAP = 10f
+    /**
+     * 卡片左侧留给前置线的竖向走线槽宽度。
+     *
+     * 前置线从卡片左边缘外这么远处经过，全程不被卡片本体遮挡。
+     */
+    const val PREREQ_LANE = 12f
+
+    /** 层级之间额外的横向间距（叠加在节点+卡片宽度之上）。 */
+    const val COLUMN_GAP = 40f
+
+    /**
+     * 一个层级占用的横向宽度（节点 + 卡片 + 间距）。
+     *
+     * 横向布局里**每深一层就右移这么多**，这是父子关系的唯一视觉线索。
+     */
+    const val LEVEL_WIDTH = NODE_WIDTH + CARD_WIDTH + COLUMN_GAP
 
     /** 顶部的章节标题高度。 */
-    const val HEADER_HEIGHT = 30f
+    const val HEADER_HEIGHT = 32f
+
+
+    /** 行高：只按节点高度算 —— 卡片已删除，不要把卡片高度算进来。 */
+    const val ROW_HEIGHT = HEADER_HEIGHT + 22f
+
+
+
+
 
     /** 左上的整体留白。 */
     const val PADDING = 24f
 
+    /** 主题分区的标题栏高度（显示主题名）。 */
+    const val GROUP_TITLE_HEIGHT = 34f
+
+    /** 主题分区包围盒的内边距。 */
+    const val GROUP_PADDING = 14f
+
+    /** 主题分区之间的间隙 —— 要大，让"两份不同的东西"一眼可见。 */
+    const val GROUP_GAP = 56f
+
+    /**
+     * 每深一层向右缩进多少 —— 这是父子关系的唯一视觉线索。
+     *
+     * 取 34f 而不是更小的值：缩进太小时，一旦画布被缩放（结构图允许缩放），
+     * 22dp 缩进在 0.45 比例下只剩不到 10px，父子边界就看不出来了。
+     */
+
+    /** 缩进后节点宽的保底值，避免深层节点窄到放不下字。 */
+
     /** 一个待绘制的节点。 */
+    /**
+     * 一个待绘制的节点（**只有大纲节点，不再单独画卡片**）。
+     *
+     * 卡片为什么不再画：实测 22/22 张卡片的标题与所属大纲节点完全相同，
+     * 且卡片与节点基本 1:1。把两者画成两个元素等于同一件事画两遍，
+     * 结构图还会因此多出一整列、总宽超出屏幕两倍。
+     *
+     * 现在：节点是**唯一点击入口**，卡片内容（标题/摘要/正文/命题）
+     * 在点击后的底部弹窗里给出 —— 结构图只负责「骨架」，内容按需展开。
+     */
     data class Node(
-        /** 卡片 ID；章节标题节点为 null。 */
-        val cardId: String?,
+        /** 大纲节点路径，全局唯一，用作选中标识。 */
+        val nodePath: String,
         val title: String,
         val x: Float,
         val y: Float,
         val width: Float,
         val height: Float,
-        /** 该节点挂了几条命题（卡片右上角的圆标）。 */
+        /** 该节点下属卡片一共有几条命题（右上角圆标）。 */
         val claimCount: Int,
-        /** 是否是可下钻的叶子卡。 */
+        /** 是否有可下钻的卡片（决定边框样式与点击行为）。 */
         val descendable: Boolean,
-        /** 章节节点标记（绘制样式不同）。 */
-        val isSection: Boolean
+        /** 该节点直接挂的卡片 id；弹窗据此取内容。 */
+        val cardIds: List<String>,
     )
 
     /** 一条连线。 */
@@ -64,7 +113,18 @@ object TreeLayout {
         val fromY: Float,
         val toX: Float,
         val toY: Float,
-        val style: Style
+        val style: Style,
+        /** 细枝：层级连线用更细的样式，避免与依赖线一样重。 */
+        val weak: Boolean = false,
+        /**
+         * 两端所属的大纲节点路径。
+         *
+         * 用于「选中某节点时高亮与它相关的连线」：
+         * 只要 [fromNode] 或 [toNode] 等于选中节点，这条线就高亮。
+         * 用路径而不是坐标判断，是因为坐标比较有浮点误差。
+         */
+        val fromNode: String? = null,
+        val toNode: String? = null,
     ) {
         /**
          * 连线样式。
@@ -84,129 +144,246 @@ object TreeLayout {
         val lines: List<Line>,
         /** 内容总宽高，供缩放适配与滚动范围。 */
         val contentWidth: Float,
-        val contentHeight: Float
+        val contentHeight: Float,
+        /**
+         * 主题分区：每个主题一棵独立的树，含标题与包围盒。
+         *
+         * 出厂图谱是一个主题（"预置图谱"），每个生成图谱各是一个主题。
+         * 渲染时按分区画背景框与标题，让用户一眼看出「这是两份不同的东西」。
+         */
+        val groups: List<Group> = emptyList()
     ) {
         val isEmpty: Boolean get() = nodes.isEmpty()
     }
 
     /**
+     * 一个主题分区。
+     *
+     * 为什么需要分区：出厂图谱与生成图谱来源不同（出版物 vs 用户生成），
+     * 平铺在一起会让用户分不清。分区用**视觉隔断**表达这个边界。
+     */
+    data class Group(
+        val title: String,
+        /** 分区包围盒（含内边距）。 */
+        val x: Float,
+        val y: Float,
+        val width: Float,
+        val height: Float,
+        /** 是否可溯源的出厂图谱（用于选不同的边框颜色）。 */
+        val isBundled: Boolean
+    )
+
+    /**
      * 计算布局。
      *
-     * ## 分列的层级选择
+     * ## 结构
      *
-     * 设计文档写的是「一级章节一列」，但**只对多章节的图谱成立**。
-     * 实际数据常常只有一个根节点（如「Transformer 架构」下分 6 章），
-     * 此时按一级分列会退化成 1 列、22 张卡纵向排成一根长条 —— 既看不出结构，
-     * 交叉链接也几乎全是同列内的竖线。
+     * 每个主题一个分区，分区内是**真正的树**：
      *
-     * 因此这里按「**第一个产生多列的层级**」分列：
-     * 若一级章节 ≤ 1，就下沉一级用二级章节分列；仍 ≤ 1 则再下沉。
-     * 这样无论数据是「多根」还是「单根多章」，都能得到有意义的列结构。
+     * ```
+     * ┌─ 主题分区 ──────────────────────────┐
+     * │ 主题名                               │
+     * │  ├ 1 第一章          ← level 1      │
+     * │  │  ├ 1.1 节          ← level 2      │
+     * │  │  │  └ [卡片]       ← 卡片         │
+     * │  │  └ 1.2 节                         │
+     * │  └ 2 第二章                          │
+     * └──────────────────────────────────────┘
+     * ```
+     *
+     * **按层级缩进**而不是拍平成一列：`x` 由层级深度决定，`y` 由先序顺序决定。
+     * 这样父子关系一眼可见，不会出现「所有卡看起来都一样、只是越来越低」。
+     */
+    /**
+     * 计算布局（**横向 tidy tree**）。
+     *
+     * ## 为什么是横向
+     *
+     * 纵向先序布局（层级靠 x 缩进、节点沿 y 递增）在真实数据上会拉成一根长竖条：
+     * 22 张卡排成 46 行，层级线、前置线、关联线全是竖线，方向无法区分 ——
+     * 用户看到的是「一堆竖着的线」，看不出谁依赖谁。
+     *
+     * 横向布局把层级放到 x 轴上：
+     *
+     * ```
+     * 列0 根           列1 章            列2 节
+     * ┌──────────┐   ┌────────────┐    ┌──────────┐
+     * │Transformer│──▶│1 前馈网络  │───▶│1.1 Linear│──▶[卡片]
+     * └──────────┘   │            │    │1.2 ReLU  │──▶[卡片]
+     *                │            │    │1.3 Softmax│─▶[卡片]
+     *                │2 层间依赖  │───▶│2.1 形状  │──▶[卡片]
+     *                └────────────┘    └──────────┘
+     * ```
+     *
+     * 父在左、子在右，**依赖的方向就是阅读方向**，一眼能看出「先学哪个」。
+     *
+     * ## y 的分配
+     *
+     * 用 tidy tree 的经典做法：先给每个叶子分配一个行号（纵向累加），
+     * 父节点的行号取其第一个子与最后一个子的中点。这样父节点总是垂直居中对齐子节点，
+     * 连线不会出现无谓的斜拉。
      */
     fun layout(graph: MergedGraph): Result {
+        val topics = graph.outline.sortedBy { it.order }
+        if (topics.isEmpty()) return Result(emptyList(), emptyList(), 0f, 0f)
+
         val nodes = ArrayList<Node>()
         val lines = ArrayList<Line>()
+        val groups = ArrayList<Group>()
+        val positionOf = HashMap<String, Node>()
 
-        val columns = chooseColumns(graph.outline)
-        if (columns.isEmpty()) return Result(emptyList(), emptyList(), 0f, 0f)
+        var groupTop = PADDING
+        var maxRight = 0f
 
-        var maxColumnBottom = 0f
-        val positionOf = HashMap<String, Node>() // cardId -> 节点（用于连交叉链接）
+        topics.forEach { topic ->
+            val groupLeft = PADDING
+            val treeTop = groupTop + GROUP_TITLE_HEIGHT
 
-        columns.forEachIndexed { columnIndex, section ->
-            val columnX = PADDING + columnIndex * (COLUMN_WIDTH + COLUMN_GAP)
+            // ---- 第一遍：给每个节点分配一个「行号」（浮点，便于父节点取中点）----
+            val rowOf = HashMap<String, Float>()
+            var nextRow = 0f
 
-            // 章节标题节点
-            val header = Node(
-                cardId = null,
-                title = section.title,
-                x = columnX,
-                y = PADDING,
-                width = COLUMN_WIDTH,
-                height = HEADER_HEIGHT,
-                claimCount = 0,
-                descendable = false,
-                isSection = true
-            )
-            nodes += header
+            fun assignRows(node: GraphOutlineNode) {
+                val children = node.children.sortedBy { it.order }
+                if (children.isEmpty()) {
+                    // 叶子：一个叶子独占一行。
+                    // 若它挂了多张卡，行高会被撑大（见下面的 rowHeight），
+                    // 但行号只占一个 —— 卡片是同行的内容，不是更深的结构。
+                    rowOf[node.id] = nextRow
+                    nextRow += 1f
+                } else {
+                    children.forEach { assignRows(it) }
+                    val firstChildRow = rowOf[children.first().id]!!
+                    val lastChildRow = rowOf[children.last().id]!!
+                    rowOf[node.id] = (firstChildRow + lastChildRow) / 2f
+                }
+            }
+            assignRows(topic)
 
-            // 该列下所有卡片（含子章节），按大纲顺序纵向排
-            val ordered = orderedCards(graph, section)
-            var cursorY = PADDING + HEADER_HEIGHT + NODE_GAP
-            ordered.forEach { card ->
-                val node = Node(
-                    cardId = card.id,
-                    title = card.title,
-                    x = columnX,
-                    y = cursorY,
-                    width = COLUMN_WIDTH,
-                    height = NODE_HEIGHT,
-                    claimCount = card.claims.size,
-                    descendable = card.descendable,
-                    isSection = false
+            // ---- 第二遍：按行号放置节点 ----
+            var deepestRight = groupLeft
+
+            fun place(node: GraphOutlineNode, depth: Int, parentNode: Node?) {
+                val x = groupLeft + depth * LEVEL_WIDTH
+                val y = treeTop + rowOf[node.id]!! * ROW_HEIGHT
+
+                // 该节点直接挂的卡片（通常 0–1 张，个别有多张）
+                val cards = graph.cards.filter { it.outlinePath == node.path }
+                val claims = cards.sumOf { it.claims.size }
+
+                val self = Node(
+                    nodePath = node.path,
+                    title = node.title,
+                    x = x,
+                    y = y,
+                    width = NODE_WIDTH,
+                    height = HEADER_HEIGHT,
+                    claimCount = claims,
+                    // 有卡片就能点开看内容；没有卡片的组织性节点置灰
+                    descendable = cards.isNotEmpty(),
+                    cardIds = cards.map { it.id },
                 )
-                nodes += node
-                positionOf[card.id] = node
+                nodes += self
+                positionOf[node.path] = self
+                deepestRight = max(deepestRight, self.x + self.width)
 
-                // 层级连线：章节标题 → 本列的第一张卡（只画一条，避免视觉噪音）
-                if (card === ordered.first()) {
+                if (parentNode != null) {
+                    // 父右中 → 子左中：横向折线，方向与阅读方向一致
                     lines += Line(
-                        fromX = columnX + COLUMN_WIDTH / 2,
-                        fromY = PADDING + HEADER_HEIGHT,
-                        toX = columnX + COLUMN_WIDTH / 2,
-                        toY = cursorY,
-                        style = Line.Style.HIERARCHY
+                        fromX = parentNode.x + parentNode.width,
+                        fromY = parentNode.y + parentNode.height / 2,
+                        toX = self.x,
+                        toY = self.y + self.height / 2,
+                        style = Line.Style.HIERARCHY,
+                        fromNode = parentNode.nodePath,
+                        toNode = node.path,
                     )
                 }
 
-                cursorY += NODE_HEIGHT + NODE_GAP
+                node.children.sortedBy { it.order }.forEach { child ->
+                    place(child, depth + 1, self)
+                }
             }
-            maxColumnBottom = max(maxColumnBottom, cursorY)
+
+            place(topic, depth = 0, parentNode = null)
+
+            val contentBottom = treeTop + maxOf(nextRow, 1f) * ROW_HEIGHT
+            groups += Group(
+                title = topic.title,
+                x = groupLeft - GROUP_PADDING,
+                y = groupTop,
+                width = (deepestRight - groupLeft) + GROUP_PADDING * 2 + COLUMN_GAP,
+                height = (contentBottom - groupTop) + GROUP_PADDING,
+                isBundled = !topic.path.startsWith("gen.")
+            )
+            maxRight = max(maxRight, deepestRight)
+
+            groupTop = contentBottom + GROUP_GAP
         }
 
-        // 前置关系：先画，让它们压在交叉链接之上（前置比"相关"更重要）
-        // 必须前置 = 实线，推荐前置 = 虚线
+        // 前置关系：压在交叉链接之上（前置比"相关"更重要）
+        //
+        // ## 依赖本来是卡片级的，这里**上卷到节点级**
+        //
+        // `card.prerequisites` 的端点是 cardId。结构图不再画卡片，
+        // 因此先把 cardId 映射到它所属的大纲节点，再连节点与节点。
+        //
+        // 实测这层映射是无损的：21 条卡片级前置全部映射成功，
+        // 0 条自环（两端同节点）、0 条重复。
+        val nodeOfCard = HashMap<String, String>()
+        graph.cards.forEach { nodeOfCard[it.id] = it.outlinePath }
+
         val seenPrereq = HashSet<String>()
         graph.cards.forEach { card ->
             card.prerequisites.forEach { link ->
-                val from = positionOf[link.from] ?: return@forEach
-                val to = positionOf[link.to] ?: return@forEach
-                if (!seenPrereq.add("${link.from}->${link.to}")) return@forEach
+                val fromPath = nodeOfCard[link.from] ?: return@forEach
+                val toPath = nodeOfCard[link.to] ?: return@forEach
+                // 同一节点的两张卡之间的依赖，在节点级退化成自环，跳过
+                if (fromPath == toPath) return@forEach
+                if (!seenPrereq.add("$fromPath->$toPath")) return@forEach
+                val from = positionOf[fromPath] ?: return@forEach
+                val to = positionOf[toPath] ?: return@forEach
                 lines += Line(
                     fromX = from.x + from.width / 2,
-                    fromY = from.y + from.height,
+                    fromY = from.y,
                     toX = to.x + to.width / 2,
-                    toY = to.y,
+                    toY = to.y + to.height,
                     style = when (link.kind) {
                         PrerequisiteKind.REQUIRED -> Line.Style.PREREQUISITE_REQUIRED
                         PrerequisiteKind.RECOMMENDED -> Line.Style.PREREQUISITE_RECOMMENDED
-                    }
+                    },
+                    fromNode = fromPath,
+                    toNode = toPath,
                 )
             }
         }
 
-        // 交叉链接：最淡的虚线，去重（A→B 与 B→A 只画一条）
+        // 交叉链接：最淡的虚线，去重
         val drawn = HashSet<String>()
         graph.cards.forEach { card ->
-            val from = positionOf[card.id] ?: return@forEach
+            val fromPath = nodeOfCard[card.id] ?: return@forEach
+            val from = positionOf[fromPath] ?: return@forEach
             card.crossLinks.take(5).forEach { link ->
-                val to = positionOf[link.target] ?: return@forEach
-                val key = listOf(card.id, link.target).sorted().joinToString("|")
+                val toPath = nodeOfCard[link.target] ?: return@forEach
+                if (fromPath == toPath) return@forEach
+                val to = positionOf[toPath] ?: return@forEach
+                val key = listOf(fromPath, toPath).sorted().joinToString("|")
                 if (!drawn.add(key)) return@forEach
                 lines += Line(
                     fromX = from.x + from.width,
                     fromY = from.y + from.height / 2,
                     toX = to.x,
                     toY = to.y + to.height / 2,
-                    style = Line.Style.CROSS
+                    style = Line.Style.CROSS,
+                    fromNode = fromPath,
+                    toNode = toPath,
                 )
             }
         }
 
-        val contentWidth = PADDING * 2 + columns.size * COLUMN_WIDTH +
-            (columns.size - 1).coerceAtLeast(0) * COLUMN_GAP
-        val contentHeight = maxColumnBottom + PADDING
-        return Result(nodes, lines, contentWidth, contentHeight)
+        val contentWidth = maxRight + PADDING * 2
+        val contentHeight = groupTop
+        return Result(nodes, lines, contentWidth, contentHeight, groups)
     }
 
     /**

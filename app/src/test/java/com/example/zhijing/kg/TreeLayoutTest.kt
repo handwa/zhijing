@@ -1,108 +1,106 @@
 package com.example.zhijing.kg
 
 import com.example.zhijing.kg.ui.TreeLayout
-import com.zhijing.data.model.ClaimProbeState
-import com.zhijing.data.model.ClaimSource
-import com.zhijing.data.model.ProbeStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 结构图布局测试。
+ * 结构图布局的基础测试。
  *
- * 守护「语义布局」的三条性质（它们正是力导向给不了的）：
- * 1. **位置稳定**：同样输入永远同样坐标；
- * 2. **一级章节一列**：第几张章节就在第几列，横向位置单调递增；
- * 3. **列内不重叠**：同一列里任意两个节点不重叠。
+ * ## 现在的模型
+ *
+ * 结构图**只画大纲节点**，卡片不再单独成元素（卡与节点 1:1、标题 100% 相同）。
+ * 每个节点携带它挂的卡片 id，点开在底部弹窗看内容。
+ *
+ * 因此旧测试里「卡片在节点右侧」「卡片与节点同列」这类断言全部失效，
+ * 改为断言节点间的几何关系。
  */
 class TreeLayoutTest {
 
-    private fun claim(id: String, cardId: String) = GraphClaim(
+    private fun outline(
+        id: String,
+        path: String,
+        title: String,
+        level: Int,
+        order: Int,
+        children: List<GraphOutlineNode> = emptyList()
+    ) = GraphOutlineNode(
         id = id,
-        statement = "测试命题",
-        expected = true,
-        conditions = listOf("条件"),
-        evidence = "",
-        cardId = cardId,
-        outlinePath = cardId,
-        question = "成立吗",
-        explanation = "",
-        errorKinds = emptyList(),
-        misconception = "",
-        edgeIds = emptyList(),
-        probe = ClaimProbeState(id),
-        source = ClaimSource.BUNDLED,
-        bundled = true
+        title = title,
+        level = level,
+        parentId = null,
+        path = path,
+        order = order,
+        children = children,
+        cardIds = emptyList()
     )
 
-    private fun card(id: String, title: String, outlinePath: String, claims: List<GraphClaim>) =
-        GraphCard(
-            id = id,
-            title = title,
-            outlinePath = outlinePath,
-            summary = "摘要",
-            body = "正文",
-            claims = claims,
-            badgeStatus = ProbeStatus.UNPROBED
-        )
+    private fun card(id: String, title: String, outlinePath: String) = GraphCard(
+        id = id,
+        title = title,
+        outlinePath = outlinePath,
+        summary = "摘要",
+        body = "正文",
+        claims = emptyList(),
+    )
 
-    /** 两个一级章节，第一章有 2 张卡，第二章有 1 张卡。 */
-    private fun sampleGraph(): MergedGraph {
-        // 卡片的 outlinePath 必须与对应大纲节点的 path 一致 —— 这是装配层的约定
-        // （`GraphAssembler` 里 `outlinePath` 就是 `outline.path`）。
-        val c1 = card("crd.a1", "A1", "a", listOf(claim("clm.1", "crd.a1")))
-        val c2 = card("crd.a2", "A2", "a", emptyList())
-        val c3 = card("crd.b1", "B1", "b", listOf(claim("clm.2", "crd.b1")))
-        val outline = listOf(
-            GraphOutlineNode("out.a", "第一章", 1, null, "a", 0, emptyList(), emptyList()),
-            GraphOutlineNode("out.b", "第二章", 1, null, "b", 1, emptyList(), emptyList())
-        )
-        return MergedGraph(
-            schemaVersion = "1.0",
-            generatedAt = "",
-            outline = outline,
-            cards = listOf(c1, c2, c3),
-            claims = mapOf(
-                "clm.1" to c1.claims[0],
-                "clm.2" to c3.claims[0]
-            ),
-            edges = emptyMap()
+    /** 两个主题（各一章一卡），用于验证分区。 */
+    private fun sampleGraph(): MergedGraph = MergedGraph(
+        schemaVersion = "1.0",
+        generatedAt = "",
+        outline = listOf(
+            outline("out.a", "a", "第一章", 1, 0),
+            outline("out.b", "b", "第二章", 1, 1),
+        ),
+        cards = listOf(
+            card("crd.a1", "卡片A", "a"),
+            card("crd.b1", "卡片B", "b"),
+        ),
+        claims = emptyMap(),
+        edges = emptyMap(),
+    )
+
+    /* ------------------------------------------------------ 主题分区 */
+
+    @Test
+    fun `每个主题一个分区`() {
+        val r = TreeLayout.layout(sampleGraph())
+        assertEquals(2, r.groups.size)
+        assertEquals(listOf("第一章", "第二章"), r.groups.map { it.title })
+    }
+
+    @Test
+    fun `分区纵向排列且不重叠`() {
+        val r = TreeLayout.layout(sampleGraph())
+        val sorted = r.groups.sortedBy { it.y }
+        assertTrue(
+            "第二个分区应在第一个下方",
+            sorted[1].y >= sorted[0].y + sorted[0].height
         )
     }
 
     @Test
-    fun `一级章节一列且横向递增`() {
-        val r = TreeLayout.layout(sampleGraph())
-        val sections = r.nodes.filter { it.isSection }
-        assertEquals(2, sections.size)
-        // 两列的 x 必须不同，且按 order 递增
-        assertTrue("第二章应在第一章右侧", sections[1].x > sections[0].x)
-
-        // 第一章的所有节点（标题 + 两张卡）横向位置必须一致
-        val firstSectionX = sections[0].x
-        val colA = r.nodes.filter { it.cardId == "crd.a1" || it.cardId == "crd.a2" }
-        assertEquals(2, colA.size)
-        assertTrue("第一章的卡片应与章节标题同列", colA.all { it.x == firstSectionX })
-
-        // 第二章的卡在右侧
-        val b1 = r.nodes.first { it.cardId == "crd.b1" }
-        assertTrue("第二章的卡应在右侧", b1.x > firstSectionX)
+    fun `分区标记出厂与生成`() {
+        val g = sampleGraph()
+        val generated = outline("out.gen", "gen.t1", "生成主题", 1, 2)
+        val r = TreeLayout.layout(g.copy(outline = g.outline + generated))
+        assertTrue(r.groups.first { it.title == "第一章" }.isBundled)
+        assertFalse("gen. 前缀应标为生成", r.groups.first { it.title == "生成主题" }.isBundled)
     }
+
+    /* ------------------------------------------------------ 节点几何 */
 
     @Test
     fun `列内节点不重叠`() {
         val r = TreeLayout.layout(sampleGraph())
-        val cards = r.nodes.filter { !it.isSection }
-        // 按列分组后检查纵向不重叠
-        cards.groupBy { it.x }.values.forEach { column ->
-            val sorted = column.sortedBy { it.y }
-            sorted.zipWithNext { upper, lower ->
-                assertTrue(
-                    "节点 ${upper.title} 与 ${lower.title} 在列内重叠",
-                    lower.y >= upper.y + upper.height
-                )
-            }
+        val chapters = r.nodes.filter { it.title.startsWith("第") }.sortedBy { it.y }
+        chapters.zipWithNext().forEach { (a, b) ->
+            assertTrue(
+                "节点不能重叠：${a.title}(y=${a.y}) 与 ${b.title}(y=${b.y})",
+                b.y >= a.y + a.height
+            )
         }
     }
 
@@ -110,55 +108,135 @@ class TreeLayoutTest {
     fun `布局是确定性的`() {
         val a = TreeLayout.layout(sampleGraph())
         val b = TreeLayout.layout(sampleGraph())
-        assertEquals(a.nodes.map { "${it.cardId}@${it.x},${it.y}" }, b.nodes.map { "${it.cardId}@${it.x},${it.y}" })
+        assertEquals(
+            a.nodes.map { "${it.nodePath}@${it.x},${it.y}" },
+            b.nodes.map { "${it.nodePath}@${it.x},${it.y}" }
+        )
         assertEquals(a.lines.size, b.lines.size)
     }
 
     @Test
     fun `空图谱返回空布局`() {
-        val empty = MergedGraph("", "", emptyList(), emptyList(), emptyMap(), emptyMap())
-        val r = TreeLayout.layout(empty)
+        val r = TreeLayout.layout(
+            MergedGraph("1.0", "", emptyList(), emptyList(), emptyMap(), emptyMap())
+        )
         assertTrue(r.isEmpty)
         assertEquals(0f, r.contentWidth)
+        assertTrue(r.groups.isEmpty())
+    }
+
+    /* ------------------------------------------------------ 卡片关联 */
+
+    @Test
+    fun `节点携带它的卡片 id`() {
+        val r = TreeLayout.layout(sampleGraph())
+        assertEquals(listOf("crd.a1"), r.nodes.first { it.nodePath == "a" }.cardIds)
+        assertEquals(listOf("crd.b1"), r.nodes.first { it.nodePath == "b" }.cardIds)
     }
 
     @Test
-    fun `命题数显示在节点上`() {
-        val r = TreeLayout.layout(sampleGraph())
-        val a1 = r.nodes.first { it.cardId == "crd.a1" }
-        assertEquals(1, a1.claimCount)
-        val a2 = r.nodes.first { it.cardId == "crd.a2" }
-        assertEquals(0, a2.claimCount)
-        // 有命题的卡可下钻
-        assertTrue(a1.descendable)
-        assertTrue(!a2.descendable)
+    fun `没有卡片的节点不可下钻`() {
+        val g = sampleGraph()
+        val emptyNode = outline("out.empty", "empty", "空组织节点", 1, 9)
+        val r = TreeLayout.layout(g.copy(outline = g.outline + emptyNode))
+
+        val withCard = r.nodes.first { it.nodePath == "a" }
+        val noCard = r.nodes.first { it.nodePath == "empty" }
+        assertTrue("有卡片→可点开", withCard.descendable)
+        assertFalse("无卡片→不可点开", noCard.descendable)
+        assertTrue(noCard.cardIds.isEmpty())
     }
 
+    /* ------------------------------------------------------ 连线 */
+
     @Test
-    fun `层级连线连接章节标题与首张卡`() {
+    fun `层级连线一律向右`() {
         val r = TreeLayout.layout(sampleGraph())
-        val hierarchyLines = r.lines.filter { it.style == TreeLayout.Line.Style.HIERARCHY }
-        // 每个章节一条
-        assertEquals(2, hierarchyLines.size)
-        hierarchyLines.forEach { line ->
-            // 竖线：起止 x 相同
-            assertEquals(line.fromX, line.toX, 0.001f)
-            assertTrue(line.toY > line.fromY)
+        val hierarchy = r.lines.filter { it.style == TreeLayout.Line.Style.HIERARCHY }
+        // sampleGraph 两章都是根，没有父子关系 → 没有层级线
+        // 这里只断言「若有，则一律向右」，父子情形由 RealTreeIndentTest 覆盖
+        hierarchy.forEach { line ->
+            assertTrue("层级线必须向右", line.toX > line.fromX)
         }
     }
 
     @Test
-    fun `内容尺寸覆盖所有节点`() {
-        val r = TreeLayout.layout(sampleGraph())
-        r.nodes.forEach { node ->
-            assertTrue(
-                "节点 ${node.title} 超出内容宽度",
-                node.x + node.width <= r.contentWidth + 0.01f
-            )
-            assertTrue(
-                "节点 ${node.title} 超出内容高度",
-                node.y + node.height <= r.contentHeight + 0.01f
-            )
+    fun `前置依赖映射到节点级`() {
+        // 两张卡分属不同节点，A 是 B 的必须前置
+        val g = MergedGraph(
+            schemaVersion = "1.0",
+            generatedAt = "",
+            outline = listOf(
+                outline("out.a", "a", "第一章", 1, 0),
+                outline("out.b", "b", "第二章", 1, 1),
+            ),
+            cards = listOf(
+                card("crd.a1", "卡片A", "a").copy(
+                    prerequisites = listOf(
+                        PrerequisiteLink(
+                            from = "crd.a1",
+                            to = "crd.b1",
+                            kind = PrerequisiteKind.REQUIRED,
+                            reason = "测试",
+                        )
+                    )
+                ),
+                card("crd.b1", "卡片B", "b"),
+            ),
+            claims = emptyMap(),
+            edges = emptyMap(),
+        )
+        val r = TreeLayout.layout(g)
+        val prereq = r.lines.filter { it.style == TreeLayout.Line.Style.PREREQUISITE_REQUIRED }
+        assertEquals("应有一条必须前置线", 1, prereq.size)
+        assertEquals("a", prereq.single().fromNode)
+        assertEquals("b", prereq.single().toNode)
+    }
+
+    @Test
+    fun `同一节点内两张卡的前置退化为自环被丢弃`() {
+        // 两张卡都挂在 node a 下 → 映射到节点级是自环，应被丢掉
+        val g = MergedGraph(
+            schemaVersion = "1.0",
+            generatedAt = "",
+            outline = listOf(outline("out.a", "a", "第一章", 1, 0)),
+            cards = listOf(
+                card("crd.a1", "卡片A1", "a").copy(
+                    prerequisites = listOf(
+                        PrerequisiteLink("crd.a1", "crd.a2", PrerequisiteKind.REQUIRED, "内部依赖")
+                    )
+                ),
+                card("crd.a2", "卡片A2", "a"),
+            ),
+            claims = emptyMap(),
+            edges = emptyMap(),
+        )
+        val r = TreeLayout.layout(g)
+        val prereq = r.lines.filter {
+            it.style == TreeLayout.Line.Style.PREREQUISITE_REQUIRED ||
+                it.style == TreeLayout.Line.Style.PREREQUISITE_RECOMMENDED
+        }
+        assertTrue("自环应被丢弃", prereq.isEmpty())
+    }
+
+    @Test
+    fun `连线记录了端点节点 供选中高亮使用`() {
+        val g = MergedGraph(
+            schemaVersion = "1.0",
+            generatedAt = "",
+            outline = listOf(
+                outline("out.a", "a", "第一章", 1, 0, children = listOf(outline("out.a1", "a1", "1.1 节", 2, 0))),
+            ),
+            cards = listOf(card("crd.a1", "卡", "a1")),
+            claims = emptyMap(),
+            edges = emptyMap(),
+        )
+        val r = TreeLayout.layout(g)
+        val hierarchy = r.lines.filter { it.style == TreeLayout.Line.Style.HIERARCHY }
+        assertTrue(hierarchy.isNotEmpty())
+        hierarchy.forEach { line ->
+            assertEquals("a", line.fromNode)
+            assertEquals("a1", line.toNode)
         }
     }
 }

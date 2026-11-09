@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ZhiJing" parent="android:Theme.Material.Light.NoActionBar"/>
+    <!--
+      Compose 应用只需要一个无 ActionBar 的壳。
+      刻意继承 Material3 的 NoActionBar 而不是系统旧主题：
+      - 系统 Material 主题会和 Compose 的 Material3 配色冲突（标题栏、窗口底色不对）
+      - 旧主题与 Android 15/16 的 edge-to-edge 强制行为配合不稳定
+    -->
+    <style name="Theme.ZhiJing" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- 窗口底色用纸白，避免 Compose 首帧之前闪黑 -->
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

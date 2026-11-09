@@ -4,6 +4,9 @@ import android.content.Context
 import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.ClaimProbeState
 import com.zhijing.data.model.ClaimReviewStatus
+import com.zhijing.data.model.GeneratedCard
+import com.zhijing.data.model.GeneratedGraph
+import com.zhijing.data.model.GeneratedOutlineNode
 import com.zhijing.data.model.ClaimSource
 import com.zhijing.data.model.ProbeStatus
 import com.zhijing.data.model.RuntimeClaim
@@ -74,7 +77,9 @@ class GraphAssembler(
         }
         val claimIds = bundled.claims.map { it.id } + runtimeClaims.map { it.claimId }
         val states = data.kgStates.getStates(claimIds)
-        return merge(bundled, runtimeClaims, states)
+        // 生成图谱与出厂图谱并列呈现，各自成树
+        val generated = data.kgGenerated.listGraphs()
+        return merge(bundled, runtimeClaims, states, generated)
     }
 
     /**
@@ -161,7 +166,8 @@ class GraphAssembler(
     private suspend fun merge(
         bundled: ParsedGraph,
         runtime: List<RuntimeClaim>,
-        states: Map<String, ClaimProbeState>
+        states: Map<String, ClaimProbeState>,
+        generated: List<GeneratedGraph> = emptyList()
     ): MergedGraph {
         // 1) 出厂命题：状态按 ID 派生
         val claims = LinkedHashMap<String, GraphClaim>()
@@ -224,31 +230,183 @@ class GraphAssembler(
         // 4) 大纲树
         val outline = buildOutline(bundled.outline, cards)
 
+        // 5) 生成图谱：每个主题自成一棵子树，挂在出厂大纲之后。
+        //
+        //    刻意**不并入**出厂大纲树：两者来源不同（出版物 vs 用户生成），
+        //    混在一起会让用户分不清「哪些是系统预置的、哪些是我生成的」。
+        //    主题节点的 path 用 `gen.<topicId>` 前缀，避免与出厂路径冲突。
+        val genOutlines = if (generated.isEmpty()) emptyList() else {
+            data.kgGenerated.allOutline()
+        }
+        val genCards = if (generated.isEmpty()) emptyList() else {
+            data.kgGenerated.allCards()
+        }
+        val generatedRoots = buildGeneratedTrees(generated, genOutlines, genCards, states)
+
+        // 生成图谱的卡片前置关系：从 Room 读出来，按 to 分组挂到卡片上
+        val genPrereqs = if (generated.isEmpty()) emptyList() else data.kgGenerated.allPrerequisites()
+        val genPrereqByCard: Map<String, List<PrerequisiteLink>> = genPrereqs.groupBy { it.toCardId }
+            .mapValues { (_, list) ->
+                list.map { p ->
+                    PrerequisiteLink(
+                        from = p.fromCardId,
+                        to = p.toCardId,
+                        kind = PrerequisiteKind.fromWire(p.kind),
+                        reason = p.why
+                    )
+                }
+            }
+
+        // 生成图谱的卡片：转成 GraphCard。
+        // 它们**没有命题**（广度生成不产出可判断的断言），因此角标为 null、不可下钻。
+        val genGraphCards = genCards.map { c ->
+            GraphCard(
+                id = c.cardId,
+                title = c.title,
+                outlinePath = c.outlinePath,
+                summary = c.summary,
+                body = c.body,
+                badgeStatus = null,
+                prerequisites = genPrereqByCard[c.cardId].orEmpty()
+            )
+        }
+
+        val allCards = cards + genGraphCards
+
         return MergedGraph(
             schemaVersion = bundled.schemaVersion,
             generatedAt = bundled.generatedAt,
-            outline = outline,
-            cards = cards,
+            outline = outline + generatedRoots,
+            cards = allCards,
             claims = claims,
             edges = bundled.edges.associateBy { it.id }
         )
     }
 
-    private fun buildOutline(nodes: List<RawOutline>, cards: List<GraphCard>): List<GraphOutlineNode> {
-        fun build(node: RawOutline, parentPath: String): GraphOutlineNode {
-            val childNodes = nodes.filter { it.parentId == node.id }.sortedBy { it.order }
-            return GraphOutlineNode(
-                id = node.id,
-                title = node.title,
-                level = node.level,
-                parentId = node.parentId,
-                path = node.path,
-                order = node.order,
-                children = childNodes.map { build(it, node.path) },
-                cardIds = cards.filter { it.outlinePath == node.path }.map { it.id }
+    /**
+     * 把 Room 里的生成图谱组装成大纲子树。
+     *
+     * 每个主题一个根节点（`gen.<topicId>`），其下是 `OutlineBuilder` 推出的层级。
+     * 生成卡片**没有命题**（内容来自模型切块，不是命题抽取），因此 `badgeStatus` 为 null、
+     * `descendable` 为 false —— 这是设计决定：广度生成不产出可判断的断言。
+     */
+    private fun buildGeneratedTrees(
+        graphs: List<GeneratedGraph>,
+        outlines: List<GeneratedOutlineNode>,
+        cards: List<GeneratedCard>,
+        states: Map<String, ClaimProbeState>
+    ): List<GraphOutlineNode> {
+        val outlineByTopic = outlines.groupBy { it.topicId }
+        val cardsByTopic = cards.groupBy { it.topicId }
+
+        return graphs.map { meta ->
+            val topicCards = cardsByTopic[meta.topicId].orEmpty()
+            val nodes = outlineByTopic[meta.topicId].orEmpty()
+
+            // 主题根节点
+            val rootPath = "gen.${meta.topicId}"
+            val root = GraphOutlineNode(
+                id = "out.$rootPath",
+                title = meta.title,
+                level = 1,
+                parentId = null,
+                path = rootPath,
+                order = 0,
+                children = emptyList(),
+                cardIds = emptyList()
             )
+
+            // 按 parentPath 建树；顶层节点的 parent 指向主题根
+            val childrenOf = nodes.groupBy { it.parentPath ?: rootPath }
+            fun build(node: GeneratedOutlineNode): GraphOutlineNode {
+                val childCards = topicCards.filter { it.outlinePath == node.path }
+                return GraphOutlineNode(
+                    id = "out.${node.path}",
+                    title = node.title,
+                    level = (node.level + 1).coerceAtMost(3), // 主题根占一级
+                    parentId = "out.${node.parentPath ?: rootPath}",
+                    path = node.path,
+                    order = node.order,
+                    children = childrenOf[node.path].orEmpty()
+                        .sortedBy { it.order }
+                        .map(::build),
+                    cardIds = childCards.map { it.cardId }
+                )
+            }
+
+            root.copy(children = childrenOf[rootPath].orEmpty().sortedBy { it.order }.map(::build))
         }
-        return nodes.filter { it.parentId == null }.sortedBy { it.order }.map { build(it, "") }
+    }
+
+    /** 把一棵生成子树里的所有卡片 id 展开（用于统计）。 */
+    private fun flattenCards(node: GraphOutlineNode): List<String> =
+        node.cardIds + node.children.flatMap(::flattenCards)
+
+    /**
+     * 把出厂图谱的扁平大纲列表建成树。
+     *
+     * ## 为什么不能只依赖 `parentId`
+     *
+     * `graph.json` 由离线脚本生成，里面**只写了 `level`，没写 `parentId`**
+     * （实测 24 个节点，`parentPath` 非空的有 0 个）。
+     * 原实现按 `parentId` 找子节点，结果全部节点都被当成根，结构图塌成一列、
+     * 层级缩进失效 —— 用户看到的就是「所有卡片一样深，只是越排越低」。
+     *
+     * 因此这里改为**按 level 顺序推导父子关系**：
+     * 维护一条从浅到深的祖先栈，遍历时把节点挂到「最近的、level 比自己小的」节点下。
+     * 这与 `OutlineBuilder.numberDepth()` 的做法一致，两处口径统一。
+     *
+     * 若 JSON 里确实给了 `parentId`，仍以它为准（数据更可信）。
+     */
+    private fun buildOutline(nodes: List<RawOutline>, cards: List<GraphCard>): List<GraphOutlineNode> {
+        if (nodes.isEmpty()) return emptyList()
+
+        // 按 order 排序后遍历，保证「先出现的是父」这一前提成立
+        val ordered = nodes.sortedBy { it.order }
+        val hasExplicitParent = nodes.any { it.parentId != null }
+
+        // path -> 该节点的直属子节点（顺序即 order）
+        val childrenByParent = LinkedHashMap<String, MutableList<RawOutline>>()
+        val rootLevel = ArrayList<RawOutline>()
+
+        if (hasExplicitParent) {
+            // 数据自带父子指针：直接用
+            nodes.filter { it.parentId == null }.forEach { rootLevel += it }
+            nodes.filter { it.parentId != null }.forEach { n ->
+                childrenByParent.getOrPut(n.parentId!!) { ArrayList() } += n
+            }
+        } else {
+            // 只给了 level：用祖先栈推导
+            val stack = ArrayList<RawOutline>()
+            ordered.forEach { n ->
+                while (stack.isNotEmpty() && stack.last().level >= n.level) {
+                    stack.removeAt(stack.size - 1)
+                }
+                val parent = stack.lastOrNull()
+                if (parent == null) {
+                    rootLevel += n
+                } else {
+                    childrenByParent.getOrPut(parent.id) { ArrayList() } += n
+                }
+                stack += n
+            }
+        }
+
+        fun build(node: RawOutline): GraphOutlineNode = GraphOutlineNode(
+            id = node.id,
+            title = node.title,
+            level = node.level,
+            parentId = node.parentId
+                ?: childrenByParent.entries.firstOrNull { e -> e.value.any { it.id == node.id } }?.key,
+            path = node.path.ifBlank { node.id },
+            order = node.order,
+            children = childrenByParent[node.id].orEmpty()
+                .sortedBy { it.order }
+                .map(::build),
+            cardIds = cards.filter { it.outlinePath == node.path }.map { it.id }
+        )
+
+        return rootLevel.sortedBy { it.order }.map(::build)
     }
 
     companion object {

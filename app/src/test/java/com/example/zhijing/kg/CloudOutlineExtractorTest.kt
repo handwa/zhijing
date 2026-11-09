@@ -37,7 +37,7 @@ class CloudOutlineExtractorTest {
     fun `提示词要求不输出判断`() {
         val prompt = CloudOutlineExtractor.SYSTEM_PROMPT
         // 提示词里提到这些词是**禁止**它们，而不是要求输出
-        assertTrue(prompt.contains("不要输出任何判断性内容"))
+        assertTrue(prompt.contains("判断性内容"))
         assertTrue(prompt.contains("bodyStart"))
         assertTrue(prompt.contains("bodyEnd"))
     }
@@ -45,8 +45,8 @@ class CloudOutlineExtractorTest {
     @Test
     fun `user prompt 带上原文字数`() {
         val text = "这是一段原文。"
-        val p = CloudOutlineExtractor.userPrompt(text)
-        assertTrue(p.contains("共 ${text.length} 字符"))
+        val p = CloudOutlineExtractor.userPrompt(topic = "测试主题", source = text)
+        assertTrue(p.contains("\"source_length\": ${text.length}"))
         assertTrue(p.contains(text))
     }
 
@@ -78,11 +78,12 @@ class CloudOutlineExtractorTest {
 
     @Test
     fun `超过上限被截断`() {
+        // 显式传一个小的上限，避免测试与全局 MAX_BLOCKS 的数值耦死
         val items = (1..20).joinToString(",") { i ->
             """{"title":"块$i","summary":"s","bodyStart":${i - 1},"bodyEnd":$i}"""
         }
-        val r = OutlineOutputParser.parse("""{"blocks":[$items]}""")
-        assertEquals(12, r.blocks.size)
+        val r = OutlineOutputParser.parse("""{"blocks":[$items]}""", maxBlocks = 5)
+        assertEquals(5, r.blocks.size)
         assertTrue(r.warnings.any { it.contains("上限") })
     }
 

@@ -13,6 +13,10 @@ import com.zhijing.data.entity.ChunkEntity
 import com.zhijing.data.entity.ContentEntity
 import com.zhijing.data.entity.KgClaimMergeEntity
 import com.zhijing.data.entity.KgClaimStateEntity
+import com.zhijing.data.entity.KgGeneratedCardEntity
+import com.zhijing.data.entity.KgGeneratedGraphEntity
+import com.zhijing.data.entity.KgGeneratedOutlineEntity
+import com.zhijing.data.entity.KgGeneratedPrerequisiteEntity
 import com.zhijing.data.entity.KgRuntimeClaimEntity
 import com.zhijing.data.entity.ParseTaskEntity
 import com.zhijing.data.entity.PetStatusEntity
@@ -26,6 +30,7 @@ import com.zhijing.data.dao.ChunkDao
 import com.zhijing.data.dao.ContentDao
 import com.zhijing.data.dao.ConversationDao
 import com.zhijing.data.dao.KgClaimMergeDao
+import com.zhijing.data.dao.KgGeneratedGraphDao
 import com.zhijing.data.dao.KgClaimStateDao
 import com.zhijing.data.dao.KgRuntimeClaimDao
 import com.zhijing.data.dao.MessageDao
@@ -72,9 +77,13 @@ import com.zhijing.data.entity.MessageEntity
         ParseTaskEntity::class,
         KgClaimStateEntity::class,
         KgRuntimeClaimEntity::class,
-        KgClaimMergeEntity::class
+        KgClaimMergeEntity::class,
+        KgGeneratedGraphEntity::class,
+        KgGeneratedOutlineEntity::class,
+        KgGeneratedCardEntity::class,
+        KgGeneratedPrerequisiteEntity::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(EnumConverters::class, ListConverters::class, StringListConverters::class)
@@ -101,6 +110,9 @@ internal abstract class ZhijingDatabase : RoomDatabase() {
 
     /** 知识图谱：同义合并映射（解决云端重新生成导致的 ID 漂移）。 */
     abstract fun kgClaimMergeDao(): KgClaimMergeDao
+
+    /** 知识图谱：用户输入主题后由模型生成的图谱（每个主题一份）。 */
+    abstract fun kgGeneratedGraphDao(): KgGeneratedGraphDao
 
     companion object {
         @Volatile

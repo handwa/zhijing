@@ -99,11 +99,14 @@ import com.example.zhijing.cloud.CloudProvider
 import com.example.zhijing.cloud.RemoteChatClient
 import com.example.zhijing.cloud.RemoteInferenceEngine
 import com.example.zhijing.kg.CloudClaimExtractor
+import com.example.zhijing.kg.GraphAssembler
+import com.example.zhijing.kg.GraphComparisonRunner
+import com.example.zhijing.kg.GraphGenerator
 import com.example.zhijing.kg.GraphMode
 import com.example.zhijing.kg.GraphModeStore
-import com.example.zhijing.kg.GraphAssembler
 import com.example.zhijing.kg.GraphUpdateCoordinator
 import com.example.zhijing.kg.ui.GraphScreen
+import com.example.zhijing.kg.ui.GraphGenerateScreen
 import com.example.zhijing.kg.ui.GraphTestScreen
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.RuntimeClaim
@@ -126,12 +129,13 @@ data class ChatMessage(val text: String, val fromUser: Boolean)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // 刻意**不调用** enableEdgeToEdge()：
+        // 本项目用 activity-compose 1.8.0，配 targetSdk 36 时该实现会算错窗口 inset，
+        // 导致窗口拿不到输入焦点（现象：界面能显示，但点击无响应 → ANR）。
+        // 不启用 edge-to-edge 时，系统按普通布局分配窗口区域，交互正常。
         setContent {
             ZhiJingTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ChatScreen(Modifier.padding(innerPadding))
-                }
+                ChatScreen(Modifier.fillMaxSize())
             }
         }
     }
@@ -144,7 +148,7 @@ class MainActivity : ComponentActivity() {
  * 引入导航图反而增加依赖与样板代码。页内下钻（判断面板）走 Dialog 覆盖层，
  * **不**是第四个页面 —— 这是设计文档的硬约束。
  */
-private enum class AppScreen { CHAT, GRAPH, GRAPH_TEST }
+private enum class AppScreen { CHAT, GRAPH, GRAPH_TEST, GRAPH_GENERATE }
 
 /**
  * 云服务商的运行期选择器。
@@ -227,6 +231,13 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     var testRunning by remember { mutableStateOf(false) }
     val comparisonRunner = remember { com.example.zhijing.kg.GraphComparisonRunner() }
 
+    // --- 生成新图谱 ---
+    var genTopicName by remember { mutableStateOf("") }
+    var genContent by remember { mutableStateOf("") }
+    var genRunning by remember { mutableStateOf(false) }
+    var genMessage by remember { mutableStateOf<String?>(null) }
+    val graphGenerator = remember { com.example.zhijing.kg.GraphGenerator(data) }
+
     // 候选队列变化时刷新计数；图谱模式或云端配置变化也要重取
     LaunchedEffect(graphMode, cloudProvider) {
         runCatching {
@@ -237,7 +248,7 @@ fun ChatScreen(modifier: Modifier = Modifier) {
     // 图谱页面数据：进入图谱页或模式变化时重新加载。
     // 离线模式不查询增量命题表，由 assembler 内部保证。
     LaunchedEffect(screen, graphMode) {
-        if (screen == AppScreen.GRAPH) {
+        if (screen == AppScreen.GRAPH || screen == AppScreen.GRAPH_GENERATE) {
             graphLoading = true
             mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
             graphLoading = false
@@ -352,6 +363,38 @@ fun ChatScreen(modifier: Modifier = Modifier) {
             .onFailure { android.util.Log.w("Zhijing", "cloud config load failed", it) }
 
         try {
+            // ---------------------------------------------------------------
+            // 端侧 3B 模型约 2.6GB。模拟器内存 5GB，加载后系统进入低内存，
+            // 应用被挂起（表现为：界面在、但点不动 → ANR "no focused window"）。
+            // 因此提供「跳过端侧大模型」开关：图谱、测试页、云端问答都不依赖它，
+            // 只有纯离线聊天需要。在模拟器上用 adb 打开即可：
+            //   adb shell am broadcast ... 或直接预置 SharedPreferences
+            val skipLocalLlm = context.getSharedPreferences("zhijing_debug", Context.MODE_PRIVATE)
+                .getBoolean("skip_local_llm", false)
+
+            if (skipLocalLlm) {
+                android.util.Log.i("Zhijing", "skip_local_llm=true，不加载端侧大模型")
+                modelError = null
+                // 仍需嵌入模型：RAG 与向量去重依赖它，且只有 48MB
+                runCatching {
+                    val embSpec = ModelRegistry.embedding()
+                    val embFile = withContext(Dispatchers.IO) {
+                        copyAssetToPrivateStorage(
+                            context, embSpec.assetPath, embSpec.fileName, embSpec.sizeBytes
+                        )
+                    }
+                    engine.loadEmbeddingModel(embFile.absolutePath)
+                    android.util.Log.i("Zhijing", "embedding ready (skip local llm)")
+                }.onFailure {
+                    android.util.Log.w("Zhijing", "embedding load failed", it)
+                }
+                // 云端未配置时给出明确提示，而不是静默不可用
+                if (cloudRuntime.engine == null) {
+                    modelError = "已跳过端侧大模型：图谱可用，聊天需在设置里配置云端大模型。"
+                }
+                return@LaunchedEffect
+            }
+
             val model = withContext(Dispatchers.IO) { copyModelToPrivateStorage(context, spec) }
             // Native llama.cpp 初始化在 engine 创建时异步进行，先等它就绪再加载模型。
             engine.state.first { state ->
@@ -495,6 +538,7 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                                     AppScreen.CHAT -> busyName ?: "知境"
                                     AppScreen.GRAPH -> "知识图谱"
                                     AppScreen.GRAPH_TEST -> "图谱生成测试"
+                                    AppScreen.GRAPH_GENERATE -> "生成新图谱"
                                 },
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium,
@@ -568,6 +612,66 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                             data.kgStates.recordJudgement(claimId, correct, misconception)
                             // 重取图谱：状态回写走派生，广度侧角标随之更新
                             mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    onOpenSettings = { showSettings = true },
+                    onGenerateNew = {
+                        genMessage = null
+                        screen = AppScreen.GRAPH_GENERATE
+                    },
+                )
+            }
+
+            AppScreen.GRAPH_GENERATE -> {
+                GraphGenerateScreen(
+                    topicName = genTopicName,
+                    onTopicNameChange = { genTopicName = it },
+                    content = genContent,
+                    onContentChange = { genContent = it },
+                    running = genRunning,
+                    hasCloud = cloudProvider != null,
+                    message = genMessage,
+                    onGenerate = {
+                        scope.launch {
+                            genRunning = true
+                            genMessage = null
+                            try {
+                                // 判据：像原文就作为 source 传入（可溯源），否则当补充说明
+                                val asSource = com.example.zhijing.kg.ui.looksLikeSource(genContent)
+                                val outcome: GraphGenerator.Result = graphGenerator.generate(
+                                    topic = genTopicName,
+                                    provider = cloudProvider,
+                                    notes = if (asSource) "" else genContent,
+                                    source = if (asSource) genContent else ""
+                                )
+                                genMessage = when (outcome) {
+                                    is GraphGenerator.Result.Success -> {
+                                        genTopicName = ""
+                                        genContent = ""
+                                        buildString {
+                                            append("已生成「${outcome.title}」：")
+                                            append("${outcome.outlineCount} 个大纲节点、")
+                                            append("${outcome.cardCount} 张卡片。\n")
+                                            if (outcome.verified) {
+                                                append("内容来自你提供的原文，有出处。")
+                                            } else {
+                                                append("⚠ 内容由 AI 撰写，未经核实。")
+                                            }
+                                            append("\n去「知识图谱」页可以看到它。")
+                                        }
+                                    }
+
+                                    is GraphGenerator.Result.Empty ->
+                                        "AI 没有生成任何内容块。\n" +
+                                            (outcome.warnings.firstOrNull() ?: "试试把主题写具体一点。")
+
+                                    is GraphGenerator.Result.Failed ->
+                                        "失败：${outcome.reason}"
+                                }
+                            } finally {
+                                genRunning = false
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxSize().padding(padding),
@@ -790,6 +894,15 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         onClick = {
                             showSettings = false
                             screen = AppScreen.GRAPH_TEST
+                        },
+                    )
+                    SettingsNavRow(
+                        icon = Icons.Default.Add,
+                        title = "生成新图谱",
+                        subtitle = "输入一段原文，AI 切块并生成可读图谱",
+                        onClick = {
+                            showSettings = false
+                            screen = AppScreen.GRAPH_GENERATE
                         },
                     )
                     SettingsNavRow(

@@ -22,7 +22,30 @@ object OutlineBuilder {
         val title: String,
         val summary: String,
         val bodyStart: Int,
-        val bodyEnd: Int
+        val bodyEnd: Int,
+        /**
+         * 模型直接给出的正文（**无原文模式**才有）。
+         *
+         * 有原文时此字段为空，正文由 [build] 从原文截取；
+         * 无原文时 [buildFromBodies] 直接用它，并应被标记为未核实。
+         */
+        val body: String = "",
+        /**
+         * 本块依赖的其它块（前置关系）。
+         *
+         * `on` 是**标题**而不是 id —— 模型不需要知道 id，由本地映射。
+         */
+        val requires: List<RawRequire> = emptyList()
+    )
+
+    /** 模型给出的一条前置依赖。 */
+    data class RawRequire(
+        /** 被依赖块的 title，必须与某个 block 的 title 完全一致。 */
+        val on: String,
+        /** required / recommended。 */
+        val kind: PrerequisiteKind,
+        /** 一句话说明依赖点。 */
+        val why: String = ""
     )
 
     /** 加工后的大纲节点。 */
@@ -47,8 +70,56 @@ object OutlineBuilder {
     data class Result(
         val outline: List<OutlineNode>,
         val cards: List<Card>,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /**
+         * 卡片间的前置关系（已把 title 映射成 cardId、并做过校验）。
+         *
+         * `cardId` 由 [build] 生成后才知道，所以这里用 `Card` 的下标对应。
+         */
+        val prerequisites: List<ResolvedPrerequisite> = emptyList()
     )
+
+    /** 解析后的前置关系（端点已是卡片下标）。 */
+    data class ResolvedPrerequisite(
+        val fromIndex: Int,
+        val toIndex: Int,
+        val kind: PrerequisiteKind,
+        val why: String
+    )
+
+    /**
+     * 把模型给的 `requires`（按 title 引用）解析成按卡片下标的关系。
+     *
+     * 丢弃规则（一律丢弃优先，宁可少画）：
+     * - `on` 找不到对应块；
+     * - 引用自己；
+     * - 引用**排在后面**的块（先修必须在前，否则加一条反向边也会成环）。
+     *
+     * 去环与限量交给 [PrerequisiteValidator]（那层按 cardId 工作）。
+     */
+    private fun resolveRequires(blocks: List<RawBlock>): List<ResolvedPrerequisite> {
+        val indexByTitle = HashMap<String, Int>()
+        blocks.forEachIndexed { i, b ->
+            // 同名时保留**第一个**：编号重复的情况以先出现的为准
+            indexByTitle.putIfAbsent(b.title.trim(), i)
+        }
+        val out = ArrayList<ResolvedPrerequisite>()
+        blocks.forEachIndexed { i, b ->
+            b.requires.forEach { req ->
+                val from = indexByTitle[req.on.trim()] ?: return@forEach
+                if (from == i) return@forEach
+                // 先修必须在前面：引用后面的块直接丢（会造成环，也违反学习顺序）
+                if (from > i) return@forEach
+                out += ResolvedPrerequisite(
+                    fromIndex = from,
+                    toIndex = i,
+                    kind = req.kind,
+                    why = req.why
+                )
+            }
+        }
+        return out
+    }
 
     /**
      * 把模型的分块加工成「大纲 + 卡片」。
@@ -132,11 +203,89 @@ object OutlineBuilder {
             )
         }
 
-        return Result(nodes, cards, warnings)
+        return Result(nodes, cards, warnings, resolveRequires(valid))
     }
 
     /** 大纲最大层级，与 `graph.schema.json` 的 `level ≤ 3` 一致。 */
     const val MAX_LEVEL = 3
+
+    /**
+     * **无原文模式**：正文由模型给，本地只负责推层级。
+     *
+     * 与 [build] 的差别只有一处：不做区间校验与截取，直接用 `block.body`。
+     * 层级推断、路径生成、重复标题去重等逻辑完全复用 —— 两种模式产出同构的结果，
+     * 渲染层不需要区分。
+     *
+     * @param blocks 模型给的分块（`body` 已填，`bodyStart`/`bodyEnd` 无意义）
+     */
+    fun buildFromBodies(blocks: List<RawBlock>): Result {
+        val warnings = ArrayList<String>()
+        val valid = blocks.mapNotNull { b ->
+            val title = b.title.trim()
+            if (title.isEmpty()) {
+                warnings += "缺少 title 的块已丢弃"
+                return@mapNotNull null
+            }
+            if (b.body.isBlank()) {
+                warnings += "「$title」缺少正文，已丢弃"
+                return@mapNotNull null
+            }
+            b.copy(title = title, summary = b.summary.trim())
+        }
+
+        if (valid.isEmpty()) return Result(emptyList(), emptyList(), warnings)
+
+        // 层级：这部分与 build() 完全一致，直接复用同一套推断
+        val numbered = valid.map { numberDepth(it.title) }
+        val levels: List<Int> = if (numbered.all { it != null }) {
+            val maxDepth = numbered.filterNotNull().maxOrNull() ?: 1
+            numbered.map { depth ->
+                (depth ?: 1).coerceIn(1, MAX_LEVEL).coerceAtMost(maxDepth.coerceAtLeast(1))
+            }
+        } else {
+            valid.indices.map { 1 }
+        }
+
+        val paths = ArrayList<String>()
+        val nodes = ArrayList<OutlineNode>()
+        val usedSlugs = HashMap<String, Int>()
+
+        valid.forEachIndexed { i, block ->
+            val level = levels[i]
+            val slug = uniqueSlug(slugifyTitle(block.title), usedSlugs)
+            val parentPath = if (level <= 1) null else {
+                var j = i - 1
+                var found: String? = null
+                while (j >= 0) {
+                    if (levels[j] < level) {
+                        found = paths[j]
+                        break
+                    }
+                    j--
+                }
+                found
+            }
+            val path = if (parentPath == null) slug else "$parentPath.$slug"
+            paths += path
+            nodes += OutlineNode(
+                path = path,
+                title = block.title,
+                level = level,
+                order = i,
+                parentPath = parentPath
+            )
+        }
+
+        val cards = valid.mapIndexed { i, block ->
+            Card(
+                outlinePath = paths[i],
+                title = block.title,
+                summary = block.summary.ifBlank { block.title },
+                body = block.body.trim()
+            )
+        }
+        return Result(nodes, cards, warnings, resolveRequires(valid))
+    }
 
     /**
      * 从标题里读编号深度。

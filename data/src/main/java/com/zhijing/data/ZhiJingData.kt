@@ -1,4 +1,4 @@
-package com.zhijing.data
+﻿package com.zhijing.data
 
 import android.content.Context
 import com.zhijing.data.repository.AssociationRepository
@@ -7,6 +7,7 @@ import com.zhijing.data.repository.ConversationRepository
 import com.zhijing.data.repository.DefaultAssociationRepository
 import com.zhijing.data.repository.DefaultContentRepository
 import com.zhijing.data.repository.DefaultConversationRepository
+import com.zhijing.data.repository.DefaultGeneratedGraphRepository
 import com.zhijing.data.repository.DefaultKgClaimRepository
 import com.zhijing.data.repository.DefaultKgStateRepository
 import com.zhijing.data.repository.DefaultParseTaskRepository
@@ -15,6 +16,7 @@ import com.zhijing.data.repository.DefaultQaRecordRepository
 import com.zhijing.data.repository.DefaultStanceCompareRepository
 import com.zhijing.data.repository.DefaultTopicRepository
 import com.zhijing.data.repository.DefaultWakePlanRepository
+import com.zhijing.data.repository.GeneratedGraphRepository
 import com.zhijing.data.repository.KgClaimRepository
 import com.zhijing.data.repository.KgStateRepository
 import com.zhijing.data.repository.ParseTaskRepository
@@ -78,6 +80,15 @@ class ZhiJingData internal constructor(private val db: ZhijingDatabase) {
      * 未确认的候选不会出现在任何广度视图里（见 [KgClaimRepository.observeConfirmed]）。
      */
     val kgClaims: KgClaimRepository = DefaultKgClaimRepository(db)
+
+    /**
+     * 知识图谱：用户输入主题后、由模型**生成**的图谱（每个主题一份）。
+     *
+     * 与出厂图谱（`assets/kg/graph.json`，只读）分开存：
+     * 生成图谱是用户数据，可增删、可重建。
+     * 渲染时 `GraphAssembler` 把两者合并。
+     */
+    val kgGenerated: GeneratedGraphRepository = DefaultGeneratedGraphRepository(db)
 
     /** 关闭数据库并释放单例。之后再次 [get] 会重新打开。 */
     fun close() {

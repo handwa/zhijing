@@ -8,6 +8,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,6 +24,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -64,10 +75,15 @@ fun GraphScreen(
     loading: Boolean,
     onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {},
+    onGenerateNew: () -> Unit = {},
 ) {
     var selectedOutline by remember { mutableStateOf<String?>(null) }
     var descendCardId by remember { mutableStateOf<String?>(null) }
     var claimIndex by remember { mutableIntStateOf(0) }
+    // 结构图里被点中的节点路径（null = 未选中）。
+    // 选中后：与它相连的连线高亮、其余淡出，并弹出底部详情。
+    var selectedNodePath by remember { mutableStateOf<String?>(null) }
     // 视图形态：卡片流（默认，好读）或结构图（看关系）。
     // 刻意做成**同一个页面的两种呈现**，而不是两个一级 tab ——
     // 结构图与广度视图功能重叠（都是"看关系找位置"），并列会让导航变乱。
@@ -109,6 +125,14 @@ fun GraphScreen(
             }) {
                 Text(if (viewMode == GraphViewMode.CARDS) "结构图" else "卡片流")
             }
+            // 生成新图谱：图谱页内的直接入口，不必绕到设置
+            IconButton(onClick = onGenerateNew) {
+                Icon(Icons.Default.Add, contentDescription = "生成新图谱")
+            }
+            // 设置：与 TopAppBar 的齿轮功能相同，但位置在本页内，保证够得着
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Default.Settings, contentDescription = "设置")
+            }
             StatusSummaryChips(graph)
         }
 
@@ -116,27 +140,82 @@ fun GraphScreen(
         if (viewMode == GraphViewMode.TREE) {
             GraphTreeView(
                 graph = graph,
-                onCardClick = { cardId ->
-                    val card = graph.cards.firstOrNull { it.id == cardId }
-                    if (card != null && card.claims.isNotEmpty()) {
-                        descendCardId = cardId
-                        claimIndex = 0
-                    }
+                // 点节点 → 选中它（高亮相关连线）+ 底部弹窗展示内容
+                onNodeClick = { path ->
+                    selectedNodePath = if (selectedNodePath == path) null else path
+                },
+                selectedNode = selectedNodePath,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            // ---- 卡片流：大纲 chips + 卡片列表 ----
+            GraphCardList(
+                graph = graph,
+                selectedOutline = selectedOutline,
+                onSelectOutline = { selectedOutline = it },
+                onDescend = { cardId ->
+                    descendCardId = cardId
+                    claimIndex = 0
                 },
                 modifier = Modifier.weight(1f),
             )
-            // 结构图模式下仍要能下钻，复用下面的 Dialog 逻辑
-            DescendDialog(
-                graph = graph,
-                cardId = descendCardId,
-                claimIndex = claimIndex,
-                onIndexChange = { claimIndex = it },
-                onClose = { descendCardId = null },
-                onJudge = onJudge,
-            )
-            return
         }
+    }
 
+    // ---- 节点详情：底部弹窗 ----
+    // 结构图里节点是唯一入口，卡片内容（摘要/正文/命题）在这里展开。
+    val selectedPath = selectedNodePath
+    if (viewMode == GraphViewMode.TREE && selectedPath != null) {
+        val nodeCards = graph.cards.filter { it.outlinePath == selectedPath }
+        NodeDetailSheet(
+            title = findNodeByPath(graph.outline, selectedPath)?.title
+                ?: nodeCards.firstOrNull()?.title
+                ?: selectedPath,
+            cards = nodeCards,
+            onDismiss = { selectedNodePath = null },
+            onDescend = { cardId ->
+                selectedNodePath = null
+                descendCardId = cardId
+                claimIndex = 0
+            },
+        )
+    }
+
+    // ---- 深度下钻：覆盖层（两种视图共用，不是并列入口）----
+    DescendDialog(
+        graph = graph,
+        cardId = descendCardId,
+        claimIndex = claimIndex,
+        onIndexChange = { claimIndex = it },
+        onClose = { descendCardId = null },
+        onJudge = onJudge,
+    )
+}
+
+/**
+ * 卡片流视图：大纲 chips + 卡片列表。
+ *
+ * 从 [GraphScreen] 里抽出来，是因为原实现用 `return` 在 Column 内提前退出，
+ * 那会**跳过后续的下钻 Dialog**，导致结构图模式下点卡片没反应。
+ */
+@Composable
+private fun GraphCardList(
+    graph: MergedGraph,
+    selectedOutline: String?,
+    onSelectOutline: (String?) -> Unit,
+    onDescend: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 大纲筛选：选中一级章节时，其下所有卡片都显示
+    val visibleCards = if (selectedOutline == null) {
+        graph.cards
+    } else {
+        val node = findNode(graph.outline, selectedOutline)
+        val paths = collectPaths(node)
+        graph.cards.filter { it.claims.isNotEmpty() || it.outlinePath in paths }
+    }
+
+    Column(modifier.fillMaxSize()) {
         // ---- 大纲：横向 chips ----
         LazyRow(
             contentPadding = PaddingValues(horizontal = ZjSpace.pageHorizontal),
@@ -144,7 +223,7 @@ fun GraphScreen(
         ) {
             item {
                 AssistChip(
-                    onClick = { selectedOutline = null },
+                    onClick = { onSelectOutline(null) },
                     label = { Text("全部") },
                     colors = if (selectedOutline == null) {
                         AssistChipDefaults.assistChipColors(
@@ -156,7 +235,7 @@ fun GraphScreen(
             items(graph.outline) { node ->
                 val selected = selectedOutline == node.id
                 AssistChip(
-                    onClick = { selectedOutline = if (selected) null else node.id },
+                    onClick = { onSelectOutline(if (selected) null else node.id) },
                     label = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -190,31 +269,15 @@ fun GraphScreen(
                 GraphCardView(
                     card = card,
                     breadcrumb = outlinePathOf(graph, card),
-                    onDescend = {
-                        descendCardId = card.id
-                        claimIndex = 0
-                    },
-                    onOpenCrossLink = { target ->
-                        visibleCards.firstOrNull { it.id == target }?.let {
-                            descendCardId = null
-                        }
-                    },
+                    onDescend = { onDescend(card.id) },
+                    onOpenCrossLink = { /* 卡片流内暂不跳转 */ },
                 )
             }
             item { Spacer(Modifier.height(ZjSpace.xl)) }
         }
     }
-
-    // ---- 深度下钻：覆盖层（不是并列入口，没有独立路由）----
-    DescendDialog(
-        graph = graph,
-        cardId = descendCardId,
-        claimIndex = claimIndex,
-        onIndexChange = { claimIndex = it },
-        onClose = { descendCardId = null },
-        onJudge = onJudge,
-    )
 }
+
 
 /**
  * 深度下钻的覆盖层。
@@ -359,4 +422,154 @@ private fun outlinePathOf(graph: MergedGraph, card: GraphCard): String {
         return null
     }
     return find(graph.outline, emptyList())?.joinToString(" · ") ?: card.outlinePath
+}
+
+/**
+ * 节点详情底部弹窗。
+ *
+ * ## 为什么是弹窗而不是常驻面板
+ *
+ * 结构图要守「先看骨架」：一屏内尽量多的节点可见，才看得出整体形状。
+ * 常驻面板会永久吃掉 1/3 屏高，骨架就看不全了。
+ * 弹窗是**按需展开**——点开看内容，关掉回归骨架。
+ *
+ * ## 内容分工
+ *
+ * 结构图上只显示节点标题（骨架）；这里给全部内容：
+ * 卡片标题、摘要、正文，以及「可下钻的命题数」。
+ * 这与卡片流视图看到的信息一致，但不需要在图上画卡片。
+ */
+@Composable
+private fun NodeDetailSheet(
+    title: String,
+    cards: List<GraphCard>,
+    onDismiss: () -> Unit,
+    onDescend: (cardId: String) -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+    // 半透明遮罩：点击外部关闭
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.32f))
+            .clickable(onClick = onDismiss, indication = null, interactionSource = remember { MutableInteractionSource() })
+    )
+
+    // 底部卡片
+    Surface(
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .heightIn(max = 520.dp),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp,
+    ) {
+        Column(Modifier.padding(bottom = ZjSpace.md)) {
+            // 拖拽条 + 标题
+            Box(
+                Modifier
+                    .padding(top = ZjSpace.sm, bottom = ZjSpace.xs)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(999.dp))
+                    .align(Alignment.CenterHorizontally)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = ZjSpace.lg, vertical = ZjSpace.sm),
+            )
+
+            if (cards.isEmpty()) {
+                Text(
+                    "这一节只用来组织结构，没有具体内容。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = ZjSpace.lg, vertical = ZjSpace.md),
+                )
+            } else {
+                LazyColumn(Modifier.weight(1f, fill = false)) {
+                    items(cards, key = { it.id }) { card ->
+                        Column(
+                            Modifier.padding(
+                                horizontal = ZjSpace.lg,
+                                vertical = ZjSpace.sm
+                            )
+                        ) {
+                            // 正文优先：`body` 通常已包含 `summary` 的内容
+                            // （实测 summary 是 body 的一个子串），
+                            // 两处都显示会让同一段话出现两遍。
+                            // 没有 body 时才退回 summary。
+                            val content = remember(card.id) {
+                                if (card.body.isNotBlank()) stripCodeFences(card.body)
+                                else stripCodeFences(card.summary)
+                            }
+                            Text(
+                                content,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+
+                            // 命题数 + 下钻入口
+                            if (card.claims.isNotEmpty()) {
+                                Spacer(Modifier.height(ZjSpace.sm))
+                                Surface(
+                                    onClick = { onDescend(card.id) },
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                ) {
+                                    Text(
+                                        "下钻 → ${card.claims.size} 条命题",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(
+                                            horizontal = ZjSpace.md,
+                                            vertical = 6.dp
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(ZjSpace.md)) }
+                }
+            }
+        }
+    }
+    }
+}
+/** 按大纲节点的 `path` 查找节点（[findNode] 按 id 查找，path 与 id 不同）。 */
+private fun findNodeByPath(nodes: List<GraphOutlineNode>, path: String): GraphOutlineNode? {
+    nodes.forEach { node ->
+        if (node.path == path) return node
+        findNodeByPath(node.children, path)?.let { return it }
+    }
+    return null
+}
+/**
+ * 把 Markdown 代码围栏和行内标记去掉，只留内容。
+ *
+ * 原文里的 ```text ... ``` 是给渲染器看的标记，直接丢给 Text 会原样显示成一堆反引号，
+ * 看起来像排版错误。同理 `**加粗**` 与 `行内代码` 的反引号也不该露出来。
+ *
+ * 结构图是纯文本视图，不解析 Markdown —— 但至少要把它**去掉**，
+ * 而不是把标记当成正文显示给用户。
+ */
+internal fun stripCodeFences(raw: String): String {
+    if (raw.isBlank()) return raw
+    var out = raw
+    if (out.contains("```")) {
+        out = out.lineSequence()
+            .filterNot { it.trim().startsWith("```") }
+            .joinToString("\n")
+    }
+    // 行内代码：`code` → code
+    out = out.replace(Regex("`([^`\n]+)`"), "$1")
+    // 粗体 / 斜体标记：**text** → text
+    out = out.replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1")
+    out = out.replace(Regex("(?<!\\*)\\*([^*\n]+)\\*(?!\\*)"), "$1")
+    // 残留的标题井号（正文里偶有 #### ）
+    out = out.replace(Regex("(?m)^#{1,6}\\s*"), "")
+    return out.trim()
 }
