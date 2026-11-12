@@ -7,22 +7,29 @@ package com.example.zhijing.kg.depth
  *
  * 交互流程是这条产品线里唯一需要验证「方案是否成立」的环节，必须能被单测覆盖：
  * 出题顺序、不能跳过、判定是否与本地求值器一致、答错时是否匹配到对应误解。
- * 因此这里不依赖 Compose，也不碰 Room；UI 只负责把 [Question] 画出来。
+ * 因此这里不依赖 Compose，也不碰 Room；UI 只负责把 [Step] 画出来。
  *
- * ## 流程（顺序不能反）
+ * ## 单一真相
  *
- * ```
- * 出题（[current]）→ 用户必须选一个后果（[answer]）→ 揭示 + 讲机制 → [advance] → 下一题
- * ```
- *
- * 判定永远是 `intervention.resolveOutcome()` 的结果，**不调用任何模型**。
+ * 「现在是第几题 / 这一题答没答 / 该显示题目还是揭示」全部由 [step] 一处给出。
+ * UI **不要**自己再维护「是否已揭示」之类的并行状态 —— 两份状态一旦不同步，
+ * 就会出现「题号 3/2」「四个选项都点不动」这类问题。
  */
 internal class ConditionProbeSession private constructor(
     private val slots: List<Slot>,
 ) {
 
-    /** 一个「条件 × 干预点」的组合，是出题的最小单位。 */
-    private data class Slot(val triple: ConditionTriple, val intervention: Intervention)
+    /**
+     * 一个「条件 × 干预点」的组合，是出题的最小单位。
+     *
+     * [position] 是它在排序后的位置（0 起）。**题号必须来自位置，不能用已答计数**：
+     * 已答计数在「答完但未推进」时等于位置 +1，一混用就会出现 `3/2`。
+     */
+    private data class Slot(
+        val position: Int,
+        val triple: ConditionTriple,
+        val intervention: Intervention,
+    )
 
     /** 一道待答的题。 */
     data class Question(
@@ -36,6 +43,10 @@ internal class ConditionProbeSession private constructor(
         val action: String,
         /** 可选项，不含 [Outcome.UNKNOWN]。 */
         val options: List<Outcome>,
+        /** 第几题（1 起）。 */
+        val ordinal: Int,
+        /** 本题组总题数。 */
+        val total: Int,
     )
 
     /** 一次作答的结果（揭示屏所需的一切）。 */
@@ -51,6 +62,18 @@ internal class ConditionProbeSession private constructor(
         val misconception: Misjudgement?,
     )
 
+    /** UI 的三种界面状态，互斥且完备。 */
+    sealed interface Step {
+        /** 出题：还有没答的题。 */
+        data class Asking(val question: Question) : Step
+
+        /** 揭示：当前题已作答、尚未推进。 */
+        data class Revealing(val answer: Answer) : Step
+
+        /** 本卡片的题已全部走完，或根本没有可拨条件。 */
+        data object Done : Step
+    }
+
     private var index = 0
     private val answered = LinkedHashMap<String, Answer>()
 
@@ -60,8 +83,27 @@ internal class ConditionProbeSession private constructor(
     /** 全部题目是否走完。 */
     val isFinished: Boolean get() = index >= slots.size
 
-    /** 当前待答的题；已全部答完时为 null。 */
-    val current: Question? get() = slots.getOrNull(index)?.toQuestion()
+    /**
+     * 当前界面的唯一真相。
+     *
+     * 注意分支顺序：**先看当前题是否已答**，再看是否还有题。
+     * 否则「答完最后一题、还没推进」会被当成「已结束」，直接跳过揭示。
+     */
+    val step: Step
+        get() {
+            val slot = slots.getOrNull(index) ?: return Step.Done
+            val recorded = answered[slot.intervention.id]
+            return if (recorded != null) Step.Revealing(recorded) else Step.Asking(slot.toQuestion())
+        }
+
+    /** 当前是否有题可答。UI 在点击回调里用它兜底，避免重复作答把界面打崩。 */
+    val hasPending: Boolean get() = step is Step.Asking
+
+    /** 当前待答题；已答或已结束时为 null。 */
+    val current: Question? get() = (step as? Step.Asking)?.question
+
+    /** 推进后是否还有下一题（用于决定按钮文案）。 */
+    val hasNext: Boolean get() = index + 1 < slots.size
 
     /** 已作答的记录，按作答顺序。阶段 3 会把它写入 `kg_condition_probe`。 */
     val answers: List<Answer> get() = answered.values.toList()
@@ -118,6 +160,8 @@ internal class ConditionProbeSession private constructor(
         condition = triple.statement,
         action = intervention.action,
         options = Outcome.CHOICES,
+        ordinal = position + 1,
+        total = slots.size,
     )
 
     companion object {
@@ -131,14 +175,16 @@ internal class ConditionProbeSession private constructor(
             create(triples.filter { it.claimId == claimId })
 
         private fun create(triples: List<ConditionTriple>): ConditionProbeSession {
-            val slots = triples
+            val pairs = triples
                 // 入库三门槛：机制为空、没有干预、干预没有误判库的，不进交互
                 .filter { it.isValid }
-                .flatMap { triple -> triple.interventions.map { Slot(triple, it) } }
+                .flatMap { triple -> triple.interventions.map { intervention -> triple to intervention } }
                 // 固定顺序，保证同一份数据每次出题一致（也便于单测）
-                .sortedWith(
-                    compareBy({ it.triple.id }, { it.intervention.id })
-                )
+                .sortedWith(compareBy({ it.first.id }, { it.second.id }))
+
+            val slots = pairs.mapIndexed { position, (triple, intervention) ->
+                Slot(position = position, triple = triple, intervention = intervention)
+            }
             return ConditionProbeSession(slots)
         }
     }

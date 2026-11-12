@@ -33,14 +33,14 @@ import com.example.zhijing.ui.theme.ZjSpace
 @Composable
 internal fun ProbeQuestionView(
     question: ConditionProbeSession.Question,
-    index: Int,
-    total: Int,
     onChoose: (Outcome) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.padding(horizontal = ZjSpace.lg, vertical = ZjSpace.md)) {
         Text(
-            text = "先猜一下 · ${index + 1}/$total",
+            // 题号来自 Question 自身（position + 1），不再由调用方推算 ——
+            // 之前传的是「已答计数」，答完未推进时会显示成 3/2
+            text = "先猜一下 · ${question.ordinal}/${question.total}",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
         )

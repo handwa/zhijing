@@ -308,17 +308,33 @@ private fun DescendDialog(
     val card = cardId?.let { id -> graph.cards.firstOrNull { it.id == id } }
     if (card == null || card.claims.isEmpty()) return
 
-    val ordered = graph.claimsByPriority(card.id)
-    val current = ordered.getOrNull(claimIndex.coerceIn(0, ordered.lastIndex))
+    // 判断题的顺序必须在弹窗打开期间**冻结**。
+    //
+    // 原因：作答会回写探测状态（`onJudge` → `recordJudgement` → 重新 load 图谱），
+    // 而 `claimsByPriority` 按状态排序（CONFUSED → UNPROBED → VERIFIED → MASTERED）。
+    // 答对一条后它从「未探测」变成「已验证」，排序位置后移，当前题会在下一次重组时
+    // 被换成另一条命题，而序号仍是 1/2 —— 表现就是「点了成立/不成立没看到答案，直接跳题」。
+    //
+    // 这里只冻结**顺序**（按 id 快照），状态文案仍从最新图谱取，所以顶栏的四态标签会实时更新。
+    val orderedIds = remember(card.id) { graph.claimsByPriority(card.id).map { it.id } }
+    val ordered = orderedIds.mapNotNull { graph.claims[it] }
+    val current = ordered.getOrNull(claimIndex.coerceIn(0, ordered.lastIndex.coerceAtLeast(0)))
 
     // 深度 probe：三元组存在时先走「预测→揭示」，走完再回到原来的判断题面板。
     // 没有 triples 的卡片行为完全不变（probe.hasQuestions == false）。
     val probe = remember(card.id, graph.triples) {
-        ConditionProbeSession.forCard(graph.triples, card.id)
+        ConditionProbeSession.forCard(graph.triples, card.id).also { session ->
+            // 出题数为 0 是排查「为什么没出题」的第一手信息（旧包 / 卡片 id 对不上 / 数据没过门槛）
+            android.util.Log.i(
+                "GraphScreen",
+                "descend card=${card.id} triples=${graph.triples.size} probes=${session.total}",
+            )
+        }
     }
-    var probeAnswer by remember(card.id) { mutableStateOf<ConditionProbeSession.Answer?>(null) }
-    val probing = probe.hasQuestions && !probe.isFinished
-    val probeQuestion = probe.current
+    // UI 只镜像 session 的 step，不再自己维护「是否已揭示」。
+    // 两份状态并行是「题号 3/2」「选项点不动」的根源：会话已经答完/推进，
+    // 而 UI 还拿着一份旧的布尔值在渲染题目。
+    var step by remember(card.id, probe) { mutableStateOf(probe.step) }
 
     Dialog(
         onDismissRequest = onClose,
@@ -341,44 +357,58 @@ private fun DescendDialog(
                         ),
                     )
                 }
-                if (probing && probeQuestion != null) {
-                    item {
-                        val revealed = probeAnswer
-                        if (revealed == null) {
-                            ProbeQuestionView(
-                                question = probeQuestion,
-                                index = probe.answeredCount,
-                                total = probe.total,
-                                onChoose = { choice ->
+                when (val probeStep = step) {
+                    is ConditionProbeSession.Step.Asking -> item(
+                        // 按干预点 id 作为 item key：换题时强制重新组合，
+                        // 旧的按钮不会被复用，也就不会把点击派发到上一题的回调上。
+                        key = "probe-${probeStep.question.interventionId}",
+                    ) {
+                        ProbeQuestionView(
+                            question = probeStep.question,
+                            onChoose = { choice ->
+                                // 以 session 的实时状态为准：快速连点时第二次点击会打在这里，
+                                // 此时本题已答完，直接丢弃而不是把界面打崩。
+                                if (probe.hasPending) {
                                     val answer = probe.answer(choice)
-                                    probeAnswer = answer
                                     onProbeAnswer(answer)
+                                    step = probe.step
+                                } else {
+                                    android.util.Log.w(
+                                        "GraphScreen",
+                                        "ignore stale probe tap on ${probeStep.question.interventionId}",
+                                    )
+                                }
+                            },
+                        )
+                    }
+
+                    is ConditionProbeSession.Step.Revealing -> item(
+                        key = "reveal-${probeStep.answer.question.interventionId}",
+                    ) {
+                        ProbeRevealView(
+                            answer = probeStep.answer,
+                            hasNext = probe.hasNext,
+                            onContinue = {
+                                // advance() 在未作答时返回 false，这里已经答过，必然推进
+                                probe.advance()
+                                step = probe.step
+                            },
+                        )
+                    }
+
+                    ConditionProbeSession.Step.Done -> if (current != null) {
+                        item(key = "claim-${current.id}") {
+                            ClaimJudgementView(
+                                claim = current,
+                                index = claimIndex,
+                                total = ordered.size,
+                                onAnswered = { correct ->
+                                    onJudge(current.id, correct, current.misconception.takeIf { it.isNotBlank() })
                                 },
-                            )
-                        } else {
-                            ProbeRevealView(
-                                answer = revealed,
-                                hasNext = probe.answeredCount < probe.total,
-                                onContinue = {
-                                    // advance() 在未作答时返回 false，这里已经答过，必然推进
-                                    probe.advance()
-                                    probeAnswer = null
-                                },
+                                onNext = { if (claimIndex + 1 < ordered.size) onIndexChange(claimIndex + 1) },
+                                onClose = onClose,
                             )
                         }
-                    }
-                } else if (current != null) {
-                    item {
-                        ClaimJudgementView(
-                            claim = current,
-                            index = claimIndex,
-                            total = ordered.size,
-                            onAnswered = { correct ->
-                                onJudge(current.id, correct, current.misconception.takeIf { it.isNotBlank() })
-                            },
-                            onNext = { if (claimIndex + 1 < ordered.size) onIndexChange(claimIndex + 1) },
-                            onClose = onClose,
-                        )
                     }
                 }
             }

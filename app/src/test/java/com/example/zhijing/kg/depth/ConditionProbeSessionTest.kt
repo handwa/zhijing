@@ -262,4 +262,135 @@ class ConditionProbeSessionTest {
         assertTrue(session.answers[0].matched)
         assertFalse("第二个干预点内维不等", session.answers[1].matched)
     }
+
+    /* ------------------------------------------------ 待答状态（防闪退） */
+
+    @Test
+    fun hasPendingIsTrueBeforeAnswering() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+
+        assertTrue(session.hasPending)
+    }
+
+    @Test
+    fun hasPendingTurnsFalseOnceAnswered() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+        session.answer(Outcome.HOLDS)
+
+        assertFalse("已作答的题不应再被当作待答", session.hasPending)
+    }
+
+    @Test
+    fun hasPendingIsFalseWhenFinished() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+        session.answer(Outcome.HOLDS)
+        session.advance()
+
+        assertFalse(session.hasPending)
+        assertTrue(session.isFinished)
+    }
+
+    /**
+     * 这条用例锁定「UI 必须先查 [ConditionProbeSession.hasPending]」这一约束：
+     * 走完所有题后再调 [ConditionProbeSession.answer] 会抛异常。
+     *
+     * 之所以保留抛异常而不是静默返回，是因为它代表调用方确实算错了状态；
+     * UI 侧的兜底（`if (probe.hasPending)`）负责在正常交互中永不触发它。
+     */
+    @Test
+    fun answerAfterFinishThrows() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+        session.answer(Outcome.HOLDS)
+        session.advance()
+
+        assertThrows(IllegalStateException::class.java) {
+            session.answer(Outcome.FAILS)
+        }
+    }
+
+    /**
+     * 模拟「快速连点同一个选项」：第二次点击落在尚未重组的旧按钮上。
+     *
+     * UI 的兜底逻辑就是先读 hasPending 再作答，所以第二次点击会被丢弃，
+     * 不会把会话推进两次，也不会闪退。
+     */
+    @Test
+    fun rapidDoubleTapIsIgnoredByPendingGuard() {
+        val session = ConditionProbeSession.forCard(
+            listOf(triple(interventions = listOf(intervention("inv.1"), intervention("inv.2")))),
+            "crd.a",
+        )
+
+        // 第一次点击
+        assertTrue(session.hasPending)
+        session.answer(Outcome.HOLDS)
+        session.advance()
+
+        // 第二次点击（旧按钮）：兜底判定为 false，直接丢弃
+        assertEquals("inv.2", session.current!!.interventionId)
+        assertTrue("下一题仍然可以作答", session.hasPending)
+        assertEquals(1, session.answeredCount)
+    }
+
+    /* ------------------------------------------- 题号与界面状态（单一真相） */
+
+    /**
+     * 题号必须由位置决定，不能由「已答计数」推算。
+     *
+     * 曾经出现过 `3/2`：答完第 2 题但尚未推进时，已答计数是 2，
+     * 界面却拿它当题号再 +1。现在题号随 [ConditionProbeSession.Question] 一起给出。
+     */
+    @Test
+    fun questionOrdinalComesFromPositionNotAnsweredCount() {
+        val session = ConditionProbeSession.forCard(
+            listOf(triple(interventions = listOf(intervention("inv.1"), intervention("inv.2")))),
+            "crd.a",
+        )
+
+        assertEquals(1, session.current!!.ordinal)
+        assertEquals(2, session.current!!.total)
+
+        session.answer(Outcome.HOLDS)
+        session.advance()
+
+        assertEquals(2, session.current!!.ordinal)
+        assertEquals(2, session.current!!.total)
+    }
+
+    @Test
+    fun stepIsRevealingRightAfterAnswer() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+
+        assertTrue(session.step is ConditionProbeSession.Step.Asking)
+
+        session.answer(Outcome.HOLDS)
+
+        val step = session.step
+        assertTrue("答完应立即进入揭示，而不是继续显示题目", step is ConditionProbeSession.Step.Revealing)
+        assertEquals(Outcome.HOLDS, (step as ConditionProbeSession.Step.Revealing).answer.predicted)
+    }
+
+    @Test
+    fun stepIsDoneAfterAdvancingPastLastQuestion() {
+        val session = ConditionProbeSession.forCard(listOf(triple()), "crd.a")
+
+        session.answer(Outcome.HOLDS)
+        session.advance()
+
+        assertEquals(ConditionProbeSession.Step.Done, session.step)
+        assertNull("已结束时不该再有可答的题", session.current)
+    }
+
+    @Test
+    fun hasNextReflectsRemainingQuestions() {
+        val session = ConditionProbeSession.forCard(
+            listOf(triple(interventions = listOf(intervention("inv.1"), intervention("inv.2")))),
+            "crd.a",
+        )
+
+        assertTrue("还有第 2 题", session.hasNext)
+        session.answer(Outcome.HOLDS)
+        session.advance()
+        assertFalse("已是最后一题", session.hasNext)
+    }
 }
