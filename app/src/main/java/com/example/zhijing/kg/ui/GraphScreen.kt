@@ -21,13 +21,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -90,6 +95,14 @@ fun GraphScreen(
     // 结构图与广度视图功能重叠（都是"看关系找位置"），并列会让导航变乱。
     var viewMode by remember { mutableStateOf(GraphViewMode.CARDS) }
 
+    // 节点搜索：24 个节点靠眼睛还行，生成图谱到 100+ 就找不到了
+    var showSearch by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    // 聚焦请求：搜索命中或从卡片流切到结构图时，把目标节点移到视口中央。
+    // token 递增，保证「同一个节点连搜两次」也能重新定位。
+    var focusRequest by remember { mutableStateOf<GraphFocusRequest?>(null) }
+    var focusToken by remember { mutableLongStateOf(0L) }
+
     if (loading || graph == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -122,9 +135,23 @@ fun GraphScreen(
             )
             // 视图切换：树 / 图
             TextButton(onClick = {
-                viewMode = if (viewMode == GraphViewMode.CARDS) GraphViewMode.TREE else GraphViewMode.CARDS
+                if (viewMode == GraphViewMode.CARDS) {
+                    viewMode = GraphViewMode.TREE
+                    // 切到结构图时定位到刚才在看的那一节，而不是停在初始位置。
+                    // 卡片流按大纲 chip 过滤，所以这里的「当前节点」就是那个 chip。
+                    selectedOutline?.let { path ->
+                        selectedNodePath = path
+                        focusRequest = GraphFocusRequest(path, ++focusToken)
+                    }
+                } else {
+                    viewMode = GraphViewMode.CARDS
+                }
             }) {
                 Text(if (viewMode == GraphViewMode.CARDS) "结构图" else "卡片流")
+            }
+            // 节点搜索：命中后切到结构图并定位
+            IconButton(onClick = { showSearch = true }) {
+                Icon(Icons.Default.Search, contentDescription = "搜索节点")
             }
             // 生成新图谱：图谱页内的直接入口，不必绕到设置
             IconButton(onClick = onGenerateNew) {
@@ -146,6 +173,7 @@ fun GraphScreen(
                     selectedNodePath = if (selectedNodePath == path) null else path
                 },
                 selectedNode = selectedNodePath,
+                focusRequest = focusRequest,
                 modifier = Modifier.weight(1f),
             )
         } else {
@@ -200,6 +228,98 @@ fun GraphScreen(
             )
         },
     )
+
+    // ---- 节点搜索 ----
+    if (showSearch) {
+        GraphSearchDialog(
+            nodes = graph.outline,
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            onPick = { hit ->
+                selectedNodePath = hit.path
+                viewMode = GraphViewMode.TREE
+                focusRequest = GraphFocusRequest(hit.path, ++focusToken)
+                showSearch = false
+            },
+            onDismiss = { showSearch = false },
+        )
+    }
+}
+
+/**
+ * 节点搜索弹窗：输入标题片段 → 点结果 → 切到结构图并定位。
+ *
+ * 只匹配标题，不匹配正文：搜索的用途是「定位到哪个节点」，
+ * 正文匹配会把几十张卡片都带出来，反而找不到。
+ */
+@Composable
+private fun GraphSearchDialog(
+    nodes: List<GraphOutlineNode>,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onPick: (GraphSearch.Hit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val hits = remember(query, nodes) { GraphSearch.search(nodes, query) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(ZjRadius.md),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
+        ) {
+            Column(Modifier.padding(ZjSpace.lg)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    label = { Text("搜索节点") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(ZjSpace.sm))
+                when {
+                    query.isBlank() -> Text(
+                        text = "输入标题片段，例如「Softmax」",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    hits.isEmpty() -> Text(
+                        text = "没有匹配的节点",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    else -> Column(
+                        Modifier
+                            .heightIn(max = 280.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        hits.forEach { hit ->
+                            TextButton(
+                                onClick = { onPick(hit) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = hit.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                    )
+                                    if (hit.breadcrumb.isNotBlank()) {
+                                        Text(
+                                            text = hit.breadcrumb,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**

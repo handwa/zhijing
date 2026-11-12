@@ -114,4 +114,40 @@ internal object GraphTransform {
             offset.coerceIn(-margin, viewport - content + margin)
         }
     }
+
+    /**
+     * 把某个内容点移到视口中央所需的平移量。
+     *
+     * 搜索结果定位就靠它：命中节点后让它的中心落在屏幕中心，
+     * 再走一遍 [clampOffset]，避免目标在边缘时把内容推出可视范围。
+     *
+     * @param centerDp 目标点在内容坐标系里的位置（dp）
+     */
+    fun focusOffset(
+        centerDp: Offset,
+        contentDp: Size,
+        viewportPx: Size,
+        density: Float,
+        renderScale: Float,
+    ): Offset {
+        if (density <= 0f || viewportPx.width <= 0f || viewportPx.height <= 0f) return Offset.Zero
+
+        val raw = Offset(
+            x = viewportPx.width / density / 2f - centerDp.x * renderScale,
+            y = viewportPx.height / density / 2f - centerDp.y * renderScale,
+        )
+        return clampOffset(raw, contentDp, viewportPx, density, renderScale)
+    }
 }
+
+/**
+ * 一次「聚焦到某个节点」的请求。
+ *
+ * 为什么带 [token]：用户可能对同一个节点**连续搜索两次**，
+ * 只比较 nodePath 的话第二次不会触发重新聚焦（值没变），视图会停在用户手动拖走的位置。
+ */
+data class GraphFocusRequest(
+    val nodePath: String,
+    /** 递增令牌，每次搜索 +1。 */
+    val token: Long,
+)

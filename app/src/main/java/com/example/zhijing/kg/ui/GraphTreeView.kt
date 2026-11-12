@@ -74,6 +74,8 @@ fun GraphTreeView(
     onNodeClick: (nodePath: String) -> Unit,
     /** 当前选中的节点路径；选中后与它相连的线高亮、其余淡出。 */
     selectedNode: String?,
+    /** 搜索/切换视图时把某个节点移到视口中央；null 表示不主动移动视图。 */
+    focusRequest: GraphFocusRequest? = null,
     modifier: Modifier = Modifier,
 ) {
     val layout = remember(graph) { TreeLayout.layout(graph) }
@@ -113,6 +115,31 @@ fun GraphTreeView(
             viewportPx = viewportPx,
             density = density.density,
             renderScale = fitScale * nextScale,
+        )
+    }
+
+    /**
+     * 把搜索命中的节点移到视口中央。
+     *
+     * `fitScale` 与 `viewportPx` 也作为 key：首帧它们还是默认值，
+     * 等尺寸算出来后会再跑一次，避免第一次定位用错比例。
+     */
+    LaunchedEffect(focusRequest, viewportPx, fitScale) {
+        val request = focusRequest ?: return@LaunchedEffect
+        if (viewportPx.width <= 0f || viewportPx.height <= 0f) return@LaunchedEffect
+
+        val node = layout.nodes.firstOrNull { it.nodePath == request.nodePath }
+            ?: return@LaunchedEffect
+
+        applyTransform(
+            nextScale = scale,
+            nextOffset = GraphTransform.focusOffset(
+                centerDp = Offset(node.x + node.width / 2f, node.y + node.height / 2f),
+                contentDp = Size(layout.contentWidth, layout.contentHeight),
+                viewportPx = viewportPx,
+                density = density.density,
+                renderScale = fitScale * scale,
+            ),
         )
     }
 

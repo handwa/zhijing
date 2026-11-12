@@ -167,4 +167,56 @@ class GraphTransformTest {
         assertEquals(offset, GraphTransform.zoomAround(offset, 0f, 2f, Offset(1f, 1f), density))
         assertEquals(offset, GraphTransform.zoomAround(offset, 1f, 2f, Offset(1f, 1f), 0f))
     }
+
+    /* ------------------------------------------------------- 搜索定位 */
+
+    @Test
+    fun focusOffsetCentersTarget() {
+        val content = Size(600f, 400f)
+
+        val focused = GraphTransform.focusOffset(
+            centerDp = Offset(300f, 200f),
+            contentDp = content,
+            viewportPx = viewportPx,
+            density = density,
+            renderScale = 1f,
+        )
+
+        // 视口 360×640 dp：x = 180 - 300 = -120，y = 320 - 200 = 120，都在合法范围内
+        assertEquals(-120f, focused.x, 0.001f)
+        assertEquals(120f, focused.y, 0.001f)
+
+        // 校验：目标点确实落在视口中心
+        assertEquals(180f, 300f * 1f + focused.x, 0.001f)
+        assertEquals(320f, 200f * 1f + focused.y, 0.001f)
+    }
+
+    @Test
+    fun focusOffsetIsClampedForNodesNearEdge() {
+        val content = Size(600f, 400f)
+
+        val focused = GraphTransform.focusOffset(
+            centerDp = Offset(10f, 10f),
+            contentDp = content,
+            viewportPx = viewportPx,
+            density = density,
+            renderScale = 1f,
+        )
+
+        // 直接把左边缘节点居中会把内容推空，钳制到 30% 越界余量
+        val margin = viewportDp * GraphTransform.OVERSCROLL_RATIO
+        assertEquals(margin, focused.x, 0.001f)
+    }
+
+    @Test
+    fun focusOffsetWithInvalidViewportIsZero() {
+        assertEquals(
+            Offset.Zero,
+            GraphTransform.focusOffset(Offset(10f, 10f), Size(100f, 100f), Size.Zero, density, 1f),
+        )
+        assertEquals(
+            Offset.Zero,
+            GraphTransform.focusOffset(Offset(10f, 10f), Size(100f, 100f), viewportPx, 0f, 1f),
+        )
+    }
 }

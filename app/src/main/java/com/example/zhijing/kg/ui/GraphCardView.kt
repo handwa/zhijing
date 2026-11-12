@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphClaim
@@ -92,22 +93,20 @@ fun GraphCardView(
                     )
                 }
 
-                // 摘要：与正文首段重复时不重复显示
-                if (card.summary.isNotBlank() && !card.body.startsWith(card.summary)) {
-                    Spacer(Modifier.height(ZjSpace.sm))
-                    Text(
-                        text = card.summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                // 只显示一份正文。
+                // 1) summary 往往是 body 的子串（生成时就复用了同一段话），两处都显示等于写两遍；
+                // 2) 必须剥掉 Markdown 标记（`**`、反引号、代码围栏），否则卡片上会露出源码符号。
+                val bodyText = remember(card.id, card.body, card.summary) {
+                    stripCodeFences(card.body.ifBlank { card.summary })
                 }
-
-                // 正文：默认折叠
-                if (expanded && card.body.isNotBlank()) {
+                if (bodyText.isNotBlank()) {
                     Spacer(Modifier.height(ZjSpace.sm))
                     Text(
-                        text = card.body,
+                        text = bodyText,
                         style = MaterialTheme.typography.bodyMedium,
+                        // 折叠时给三行预览，展开看全文 —— 比「折叠就只剩摘要」信息量更大
+                        maxLines = if (expanded) Int.MAX_VALUE else 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
