@@ -1,7 +1,7 @@
 # 知识图谱的存储分层：出厂命题在 assets，运行时数据在 Room
 
 > 对应代码：`data/src/main/java/com/zhijing/data/{entity,dao,repository}/Kg*.kt`
-> 数据库版本：`ZhijingDatabase` v3（新增 3 张 `kg_*` 表）
+> 数据库版本：`ZhijingDatabase` v6（3 张运行时表 + 4 张生成图谱表）
 
 ## 一、要解决的问题
 
@@ -102,6 +102,25 @@
 | `basis` | vector / manual |
 
 主键约束保证**一条源 ID 只指向一个目标**，因此不存在链式映射，`resolve(ids)` 一次解析即可。
+
+### 3.4 `kg_generated_*` —— 用户输入主题后生成的图谱（v6 新增）
+
+与前三张表不同，这一组存的是**完整的可写图谱**：用户在「生成图谱」页输入一个主题，模型产出大纲、
+卡片与前置依赖后整份落库。它与出厂图谱并存，渲染时由 `GraphAssembler` 合并。
+
+| 表 | 主键 | 说明 |
+|---|---|---|
+| `kg_generated_graph` | `topic_id` | 元信息：标题、来源（cloud/local/manual）、块数、`warnings`、`verified` |
+| `kg_generated_outline` | `(topic_id, path)` | 大纲节点；`level` / `parentPath` 由 `OutlineBuilder` 本地推算 |
+| `kg_generated_card` | `(topic_id, card_id)` | 卡片；`body` 是**原文逐字截取**，不是模型重写 |
+| `kg_generated_prerequisite` | `(topic_id, from_card_id, to_card_id)` | 前置依赖；`kind` = required（实线）/ recommended（虚线） |
+
+约定：
+
+- 同一 `topic_id` 重复生成会**整份覆盖**（`GeneratedGraphRepository.save` 在一个事务里替换四张表），
+  不保留历史版本；
+- 这四张表**无外键**，删除主题走 `deleteGraph(topicId)`；
+- `verified = 0` 表示正文由模型生成、未与原文核对，UI 需要区别提示。
 
 ## 四、使用方式
 
