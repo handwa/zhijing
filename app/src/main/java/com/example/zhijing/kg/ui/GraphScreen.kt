@@ -49,6 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphOutlineNode
 import com.example.zhijing.kg.MergedGraph
+import com.example.zhijing.kg.depth.ConditionProbeSession
 import com.example.zhijing.ui.theme.ZjRadius
 import com.example.zhijing.ui.theme.ZjSpace
 import com.zhijing.data.model.ProbeStatus
@@ -189,6 +190,15 @@ fun GraphScreen(
         onIndexChange = { claimIndex = it },
         onClose = { descendCardId = null },
         onJudge = onJudge,
+        onProbeAnswer = { answer ->
+            // 阶段 3 接入 kg_condition_probe；先落日志，避免作答被静默丢弃
+            android.util.Log.i(
+                "GraphScreen",
+                "probe ${answer.question.interventionId}: " +
+                    "predicted=${answer.predicted} actual=${answer.actual.outcome} " +
+                    "matched=${answer.matched}",
+            )
+        },
     )
 }
 
@@ -293,12 +303,22 @@ private fun DescendDialog(
     onIndexChange: (Int) -> Unit,
     onClose: () -> Unit,
     onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
+    onProbeAnswer: (ConditionProbeSession.Answer) -> Unit,
 ) {
     val card = cardId?.let { id -> graph.cards.firstOrNull { it.id == id } }
     if (card == null || card.claims.isEmpty()) return
 
     val ordered = graph.claimsByPriority(card.id)
     val current = ordered.getOrNull(claimIndex.coerceIn(0, ordered.lastIndex))
+
+    // 深度 probe：三元组存在时先走「预测→揭示」，走完再回到原来的判断题面板。
+    // 没有 triples 的卡片行为完全不变（probe.hasQuestions == false）。
+    val probe = remember(card.id, graph.triples) {
+        ConditionProbeSession.forCard(graph.triples, card.id)
+    }
+    var probeAnswer by remember(card.id) { mutableStateOf<ConditionProbeSession.Answer?>(null) }
+    val probing = probe.hasQuestions && !probe.isFinished
+    val probeQuestion = probe.current
 
     Dialog(
         onDismissRequest = onClose,
@@ -321,7 +341,33 @@ private fun DescendDialog(
                         ),
                     )
                 }
-                if (current != null) {
+                if (probing && probeQuestion != null) {
+                    item {
+                        val revealed = probeAnswer
+                        if (revealed == null) {
+                            ProbeQuestionView(
+                                question = probeQuestion,
+                                index = probe.answeredCount,
+                                total = probe.total,
+                                onChoose = { choice ->
+                                    val answer = probe.answer(choice)
+                                    probeAnswer = answer
+                                    onProbeAnswer(answer)
+                                },
+                            )
+                        } else {
+                            ProbeRevealView(
+                                answer = revealed,
+                                hasNext = probe.answeredCount < probe.total,
+                                onContinue = {
+                                    // advance() 在未作答时返回 false，这里已经答过，必然推进
+                                    probe.advance()
+                                    probeAnswer = null
+                                },
+                            )
+                        }
+                    }
+                } else if (current != null) {
                     item {
                         ClaimJudgementView(
                             claim = current,

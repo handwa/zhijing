@@ -1,5 +1,6 @@
 package com.example.zhijing.kg
 
+import com.example.zhijing.kg.depth.ConditionTriple
 import com.zhijing.data.model.ClaimProbeState
 import com.zhijing.data.model.ClaimSource
 import com.zhijing.data.model.ProbeStatus
@@ -152,7 +153,14 @@ data class MergedGraph(
     val outline: List<GraphOutlineNode>,
     val cards: List<GraphCard>,
     val claims: Map<String, GraphClaim>,
-    val edges: Map<String, GraphEdge>
+    val edges: Map<String, GraphEdge>,
+    /**
+     * 深度三元组（条件—机制—反事实）。
+     *
+     * 缺省为空：旧图谱或生成图谱没有这个字段时，图谱页照常渲染，只是卡片下钻时
+     * 没有「先猜一下」这一步，直接进入原来的判断题面板。
+     */
+    val triples: List<ConditionTriple> = emptyList()
 ) {
     /** 状态汇总：按四态计数，仅统计图谱里实际存在的命题。 */
     val statusSummary: Map<ProbeStatus, Int>

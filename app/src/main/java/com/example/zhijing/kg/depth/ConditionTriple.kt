@@ -151,22 +151,36 @@ data class Intervention(
     }
 }
 
-/** 拨动后的后果类别。**四选一**，不设第五种。 */
-enum class Outcome {
+/**
+ * 拨动后的后果类别。**四选一**，不设第五种。
+ *
+ * [UNKNOWN] 只用于契约异常，**不作为用户的预测选项**（见 [CHOICES]）：
+ * 让用户去猜「无法判定」既没有教学价值，也会掩盖契约写错的问题。
+ */
+enum class Outcome(val label: String) {
     /** 仍成立。 */
-    HOLDS,
+    HOLDS("仍然成立"),
 
     /** 弱化：结论还成立但适用范围变窄 / 置信下降。 */
-    WEAKENED,
+    WEAKENED("只是适用范围变窄"),
 
     /** 变成另一条命题：不是对错问题，而是描述对象换了。 */
-    BECOMES_OTHER,
+    BECOMES_OTHER("变成另一条命题"),
 
     /** 不成立。 */
-    FAILS,
+    FAILS("不再成立"),
 
     /** 无法判定（契约异常）。 */
-    UNKNOWN,
+    UNKNOWN("无法判定");
+
+    companion object {
+        /** 提供给用户选择的后果，不含 [UNKNOWN]。 */
+        val CHOICES: List<Outcome> = entries.filter { it != UNKNOWN }
+
+        /** 解析 JSON 中的 wire 值；无法识别返回 null，由调用方决定默认值。 */
+        fun fromWire(raw: String?): Outcome? =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
+    }
 }
 
 /** 后果答案的来源，决定 UI 的诚实标注。 */
@@ -178,7 +192,18 @@ enum class TruthSource {
     AUTHORED_HUMAN,
 
     /** 模型生成后固化，未经人工核实。UI 必须标注。 */
-    AUTHORED_MODEL,
+    AUTHORED_MODEL;
+
+    companion object {
+        /**
+         * 解析 JSON 中的 wire 值。
+         *
+         * 缺省取 [AUTHORED_MODEL] 而不是 [COMPUTED]：来源不明时按「未经核实」处理，
+         * 宁可多一句提示，也不能把没验过的结论当成真值展示。
+         */
+        fun fromWire(raw: String?): TruthSource =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: AUTHORED_MODEL
+    }
 }
 
 /** 一个已解析的后果。 */

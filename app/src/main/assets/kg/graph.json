@@ -4173,5 +4173,157 @@
       "kind": "recommended",
       "reason": "位置编码常与注意力一起理解"
     }
+  ],
+  "triples": [
+    {
+      "id": "tri.linear-in-dim.1",
+      "claimId": "clm.arch.ffn.linear-in-dim.4a3e",
+      "cardId": "crd.s1-1-linear",
+      "statement": "输入张量的最后一维必须等于权重的输入维度",
+      "kind": "shape",
+      "mechanism": "矩阵乘要沿内维归约求和；内维不等时这个求和没有定义，运算直接失败。所以内维相等不是建议，而是运算能否存在的前提。",
+      "computable": true,
+      "interventions": [
+        {
+          "id": "inv.linear-in-x.4-to-5",
+          "action": "把输入最后一维从 4 改成 5",
+          "overrides": {
+            "in_x": 5
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "in_x": 4,
+              "in_w": 4,
+              "out_w": 6
+            },
+            "op": {
+              "kind": "matmul",
+              "lhs": ["N", "in_x"],
+              "rhs": ["out_w", "in_w"],
+              "rhsTransposed": true
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "in_x",
+                "right": "in_w",
+                "describe": "输入最后一维必须等于权重输入维"
+              }
+            ]
+          },
+          "consequence": "内维 5 与 4 不等，矩阵乘未定义，命题不成立",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "把内维当成结果维，以为维度不等只会让输出变宽",
+              "correction": "内维是要被消掉的那一维，必须相等才能求和；它不会出现在结果里"
+            }
+          ]
+        },
+        {
+          "id": "inv.linear-batch.8-to-160",
+          "action": "把 batch 从 8 改成 160",
+          "overrides": {
+            "N": 160
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "in_x": 4,
+              "in_w": 4,
+              "out_w": 6
+            },
+            "op": {
+              "kind": "matmul",
+              "lhs": ["N", "in_x"],
+              "rhs": ["out_w", "in_w"],
+              "rhsTransposed": true
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "in_x",
+                "right": "in_w",
+                "describe": "输入最后一维必须等于权重输入维"
+              }
+            ]
+          },
+          "consequence": "batch 是前导维，不参与内维约束，命题仍成立",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为输入一变就会破坏形状约束",
+              "correction": "约束只作用于最后一维；前导维可以任意变，这正是 batch 能自由调整的原因"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.softmax-sum.1",
+      "claimId": "clm.arch.ffn.softmax-sum.a505",
+      "cardId": "crd.s1-3-softmax",
+      "statement": "Softmax 的输出沿类别维度求和为 1",
+      "kind": "statistics",
+      "mechanism": "softmax 在类别维上做归一化：每个位置的指数值都除以该维总和。因此沿同一维再求和，恒等于 1。",
+      "computable": true,
+      "interventions": [
+        {
+          "id": "inv.softmax-sum.class-axis",
+          "action": "沿类别维（最后一维）求和",
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": ["N", "C"],
+              "softmaxAxis": 1,
+              "sumAxis": 1
+            },
+            "constraints": []
+          },
+          "consequence": "沿归一化维求和，结果恒为 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "把求和当成计数，以为结果会是类别数 10",
+              "correction": "softmax 已经把每个位置的指数值除以了总和，所以同一维上再相加就是 1；计数是另一件事"
+            }
+          ]
+        },
+        {
+          "id": "inv.softmax-sum.batch-axis",
+          "action": "沿 batch 维求和",
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": ["N", "C"],
+              "softmaxAxis": 1,
+              "sumAxis": 0
+            },
+            "constraints": []
+          },
+          "consequence": "沿 batch 维求和是把不同样本的概率相加，结果不等于 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为输出是概率分布，所以怎么求和都是 1",
+              "correction": "归一化只发生在 softmax 的那一根轴上；换一根轴求和，相当于把不同样本的概率加在一起"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

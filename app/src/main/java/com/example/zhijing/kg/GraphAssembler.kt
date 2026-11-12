@@ -1,6 +1,8 @@
 package com.example.zhijing.kg
 
 import android.content.Context
+import com.example.zhijing.kg.depth.ConditionTriple
+import com.example.zhijing.kg.depth.TripleParser
 import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.ClaimProbeState
 import com.zhijing.data.model.ClaimReviewStatus
@@ -279,7 +281,9 @@ class GraphAssembler(
             outline = outline + generatedRoots,
             cards = allCards,
             claims = claims,
-            edges = bundled.edges.associateBy { it.id }
+            edges = bundled.edges.associateBy { it.id },
+            // 三元组只来自出厂图谱；生成图谱目前不产出可拨条件
+            triples = bundled.triples
         )
     }
 
@@ -430,7 +434,13 @@ data class ParsedGraph(
      * 老图谱没有这个字段时照常加载，只是结构图上没有前置连线。
      * 形态：`[{"from":"crd.a","to":"crd.b","kind":"required","reason":"..."}]`
      */
-    val prerequisites: List<PrerequisiteLink> = emptyList()
+    val prerequisites: List<PrerequisiteLink> = emptyList(),
+    /**
+     * 深度三元组。
+     *
+     * 同样**缺省为空**：老图谱没有 `triples` 字段时照常加载，只是没有可拨条件。
+     */
+    val triples: List<ConditionTriple> = emptyList()
 ) {
     companion object {
         /**
@@ -541,6 +551,9 @@ data class ParsedGraph(
                 )
             }
 
+            // 深度三元组：缺省为空（旧图谱没有这个字段），解析器内部逐条降级
+            val triples = TripleParser.parse(root)
+
             return ParsedGraph(
                 schemaVersion = meta.strOrEmpty("schemaVersion"),
                 generatedAt = meta.strOrEmpty("generatedAt"),
@@ -548,7 +561,8 @@ data class ParsedGraph(
                 cards = cards,
                 claims = claims,
                 edges = edges,
-                prerequisites = prerequisites
+                prerequisites = prerequisites,
+                triples = triples
             )
         }
     }
