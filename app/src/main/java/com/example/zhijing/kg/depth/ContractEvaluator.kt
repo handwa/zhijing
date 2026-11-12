@@ -126,6 +126,31 @@ object ContractEvaluator {
                 } else null
             }
 
+            is TensorOp.SoftmaxSum -> {
+                val rank = op.input.size
+                if (rank == 0) {
+                    "softmax 的输入没有维度"
+                } else {
+                    val softmaxAxis = normalizeAxis(op.softmaxAxis, rank)
+                    val sumAxis = normalizeAxis(op.sumAxis, rank)
+                    when {
+                        softmaxAxis !in 0 until rank ->
+                            "softmax 的轴越界：axis=${op.softmaxAxis}, rank=$rank"
+
+                        sumAxis !in 0 until rank ->
+                            "求和的轴越界：axis=${op.sumAxis}, rank=$rank"
+
+                        // 只有沿归一化轴求和才恒等于 1；沿其他轴求和是「若干概率相加」，
+                        // 结果在 0..类别数之间，不能断言等于 1。
+                        sumAxis != softmaxAxis ->
+                            "沿轴 $sumAxis 求和不是 1：softmax 只在轴 $softmaxAxis 上归一化，" +
+                                "沿其他轴求和得到的是多个概率之和"
+
+                        else -> null
+                    }
+                }
+            }
+
             is TensorOp.ElementWise -> null
         }
     }

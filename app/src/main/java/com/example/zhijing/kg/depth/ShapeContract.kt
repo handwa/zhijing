@@ -81,6 +81,26 @@ sealed class TensorOp {
     ) : TensorOp() {
         override val allDims: List<String> get() = input
     }
+
+    /**
+     * softmax 之后沿某轴求和。
+     *
+     * 用来表达「沿类别维求和等于 1」这类统计条件。它本质是**轴是否对齐**的结构事实，
+     * 不需要浮点运算，因此仍由 [ContractEvaluator] 确定性判定，不引入浮点引擎。
+     *
+     * 典型用法：
+     * - 沿 softmax 的归一化轴求和 → 成立（和为 1）；
+     * - 沿 batch 等其他轴求和 → 不成立（每个位置各是一个概率，逐个加起来不是 1）。
+     */
+    data class SoftmaxSum(
+        val input: List<String>,
+        /** softmax 归一化的轴（0-based，负数从末尾数）。 */
+        val softmaxAxis: Int,
+        /** 求和的轴。 */
+        val sumAxis: Int,
+    ) : TensorOp() {
+        override val allDims: List<String> get() = input
+    }
 }
 
 /**

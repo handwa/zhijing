@@ -25,28 +25,19 @@ object TreeLayout {
     /** 大纲节点（胶囊）的宽度。 */
     const val NODE_WIDTH = 160f
 
-    /** 卡片（方框）的宽度。比节点窄一点：卡片标题通常更长，但需要留出行距。 */
-    const val CARD_WIDTH = 170f
-
-    /** 节点与它右侧卡片之间的水平间距。 */
-    const val CARD_GAP = 24f
-
-    /**
-     * 卡片左侧留给前置线的竖向走线槽宽度。
-     *
-     * 前置线从卡片左边缘外这么远处经过，全程不被卡片本体遮挡。
-     */
-    const val PREREQ_LANE = 12f
-
-    /** 层级之间额外的横向间距（叠加在节点+卡片宽度之上）。 */
+    /** 层级之间额外的横向间距（叠加在节点宽度之上）。 */
     const val COLUMN_GAP = 40f
 
     /**
-     * 一个层级占用的横向宽度（节点 + 卡片 + 间距）。
+     * 一个层级占用的横向宽度（节点 + 间距）。
      *
      * 横向布局里**每深一层就右移这么多**，这是父子关系的唯一视觉线索。
+     *
+     * 这里**不含卡片宽度**：结构图早已不画卡片（卡片内容改由点击节点后的底部弹窗给出），
+     * 但间距里曾残留 `CARD_WIDTH`，使三层树的内容总宽达到 924dp、初始只能缩到 0.42 倍，
+     * 字小到看不清。去掉后总宽 584dp，适配比例约 0.67，字号提升约 60%。
      */
-    const val LEVEL_WIDTH = NODE_WIDTH + CARD_WIDTH + COLUMN_GAP
+    const val LEVEL_WIDTH = NODE_WIDTH + COLUMN_GAP
 
     /** 顶部的章节标题高度。 */
     const val HEADER_HEIGHT = 32f

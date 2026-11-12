@@ -98,6 +98,24 @@ fun GraphTreeView(
         }
     }
 
+    /**
+     * 视图变换的统一收口。
+     *
+     * 任何改 `scale` / `offset` 的入口（手势、＋－按钮、搜索定位）都走这里，
+     * 保证内容不会被整块拖出屏幕 —— 之前 `offset` 无约束，拖几下就能把图拖丢，
+     * 只能点「复位」找回。
+     */
+    fun applyTransform(nextScale: Float, nextOffset: Offset) {
+        scale = nextScale
+        offset = GraphTransform.clampOffset(
+            offset = nextOffset,
+            contentDp = Size(layout.contentWidth, layout.contentHeight),
+            viewportPx = viewportPx,
+            density = density.density,
+            renderScale = fitScale * nextScale,
+        )
+    }
+
     val colors = MaterialTheme.colorScheme
     val statusColors = com.example.zhijing.ui.theme.LocalStatusColors.current
 
@@ -135,13 +153,23 @@ fun GraphTreeView(
                 }
                 // 手势必须挂在 Canvas 上，否则拿不到触点
                 .pointerInput(layout) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        val next = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-                        scale = next
-                        // pan 单位是像素，除以 density 换成 dp 概念值
-                        offset = Offset(
-                            x = offset.x + pan.x / density.density,
-                            y = offset.y + pan.y / density.density,
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val nextScale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                        // 先以手指为锚点缩放（原来锚点是 Offset.Zero，在右上角缩放时内容会往左下跑），
+                        // 再叠加平移；pan 单位是像素，除 density 换成 dp 概念值。
+                        val zoomed = GraphTransform.zoomAround(
+                            offset = offset,
+                            oldScale = scale,
+                            newScale = nextScale,
+                            centroidPx = centroid,
+                            density = density.density,
+                        )
+                        applyTransform(
+                            nextScale = nextScale,
+                            nextOffset = Offset(
+                                x = zoomed.x + pan.x / density.density,
+                                y = zoomed.y + pan.y / density.density,
+                            ),
                         )
                     }
                 }
@@ -187,10 +215,14 @@ fun GraphTreeView(
             tonalElevation = 2.dp,
         ) {
             androidx.compose.foundation.layout.Row {
-                TextButton(onClick = { scale = (scale * 1.25f).coerceAtMost(MAX_SCALE) }) {
+                TextButton(onClick = {
+                    applyTransform((scale * 1.25f).coerceAtMost(MAX_SCALE), offset)
+                }) {
                     Text("＋")
                 }
-                TextButton(onClick = { scale = (scale / 1.25f).coerceAtLeast(MIN_SCALE) }) {
+                TextButton(onClick = {
+                    applyTransform((scale / 1.25f).coerceAtLeast(MIN_SCALE), offset)
+                }) {
                     Text("－")
                 }
                 TextButton(onClick = {
