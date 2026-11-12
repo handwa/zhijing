@@ -98,6 +98,10 @@ fun GraphScreen(
     // 节点搜索：24 个节点靠眼睛还行，生成图谱到 100+ 就找不到了
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    // 卡片流里「最近看过的那张卡」：切到结构图时优先定位到它所属的节点。
+    // 注意章节 chip 存的是节点 id（out.s1），这里存的是卡片 id（crd.s1-1-linear），
+    // 两者都能映射到结构图使用的 path，但映射方式不同。
+    var selectedCardId by remember { mutableStateOf<String?>(null) }
     // 聚焦请求：搜索命中或从卡片流切到结构图时，把目标节点移到视口中央。
     // token 递增，保证「同一个节点连搜两次」也能重新定位。
     var focusRequest by remember { mutableStateOf<GraphFocusRequest?>(null) }
@@ -137,9 +141,18 @@ fun GraphScreen(
             TextButton(onClick = {
                 if (viewMode == GraphViewMode.CARDS) {
                     viewMode = GraphViewMode.TREE
-                    // 切到结构图时定位到刚才在看的那一节，而不是停在初始位置。
-                    // 卡片流按大纲 chip 过滤，所以这里的「当前节点」就是那个 chip。
-                    selectedOutline?.let { path ->
+                    // 定位优先级：刚点过的那张卡片 > 当前筛选的章节。
+                    //
+                    // 这里必须做 id → path 的转换：章节 chip 存的是节点 id（`out.s1`），
+                    // 而结构图的聚焦按 `node.path`（`s1`）匹配，直接拿 id 会静默失效 ——
+                    // 这正是「切过去跟以前没区别」的原因。
+                    val target = GraphFocus.resolvePath(
+                        cardOutlinePath = selectedCardId
+                            ?.let { cardId -> graph.cards.firstOrNull { it.id == cardId }?.outlinePath },
+                        outline = graph.outline,
+                        selectedOutlineId = selectedOutline,
+                    )
+                    target?.let { path ->
                         selectedNodePath = path
                         focusRequest = GraphFocusRequest(path, ++focusToken)
                     }
@@ -182,7 +195,11 @@ fun GraphScreen(
                 graph = graph,
                 selectedOutline = selectedOutline,
                 onSelectOutline = { selectedOutline = it },
+                selectedCardId = selectedCardId,
+                onSelectCard = { selectedCardId = it },
                 onDescend = { cardId ->
+                    // 下钻也算「看过这张卡」：关掉弹窗后切结构图，应定位到它
+                    selectedCardId = cardId
                     descendCardId = cardId
                     claimIndex = 0
                 },
@@ -333,6 +350,9 @@ private fun GraphCardList(
     graph: MergedGraph,
     selectedOutline: String?,
     onSelectOutline: (String?) -> Unit,
+    /** 当前选中的卡片（切到结构图时定位到它所属的节点）。 */
+    selectedCardId: String?,
+    onSelectCard: (String) -> Unit,
     onDescend: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -401,6 +421,8 @@ private fun GraphCardList(
                     breadcrumb = outlinePathOf(graph, card),
                     onDescend = { onDescend(card.id) },
                     onOpenCrossLink = { /* 卡片流内暂不跳转 */ },
+                    selected = card.id == selectedCardId,
+                    onSelect = { onSelectCard(card.id) },
                 )
             }
             item { Spacer(Modifier.height(ZjSpace.xl)) }

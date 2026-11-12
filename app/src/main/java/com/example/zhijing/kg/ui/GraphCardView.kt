@@ -1,6 +1,8 @@
 package com.example.zhijing.kg.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,16 +50,28 @@ fun GraphCardView(
     breadcrumb: String,
     onDescend: () -> Unit,
     onOpenCrossLink: (String) -> Unit,
+    /** 是否被选中（切到结构图时会定位到这张卡所属的节点）。 */
+    selected: Boolean = false,
+    /** 点卡片主体：记为「最近看过的那张卡」。 */
+    onSelect: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember(card.id) { mutableStateOf(false) }
     val badge = card.badgeStatus
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            // 整张卡可点：这是「选中」而不是「下钻」，下钻仍走底部按钮
+            .clickable(onClick = onSelect),
         shape = RoundedCornerShape(ZjRadius.md),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = if (selected) {
+            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
     ) {
         Row {
             // 左侧「叶脉书签」竖条：颜色即状态
