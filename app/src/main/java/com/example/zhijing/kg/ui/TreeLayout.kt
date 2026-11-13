@@ -218,16 +218,16 @@ object TreeLayout {
         val topics = graph.outline.sortedBy { it.order }
         if (topics.isEmpty()) return Result(emptyList(), emptyList(), 0f, 0f)
 
-        // 依赖视图：先把「卡片级前置」上卷成节点级拓扑序，再按它排兄弟节点。
-        // 层级视图返回空 map，走原来的大纲顺序 —— 这条分支保证旧行为与旧测试完全不变。
-        val dependencyRank =
-            if (mode == LayoutMode.DEPENDENCY) dependencyRanks(graph) else emptyMap()
+        // 依赖视图：把「卡片级前置」上卷成节点级边，**只在兄弟集合内**做稳定拓扑排序。
+        // 层级视图返回空集合，走原来的大纲顺序 —— 这条分支保证旧行为与旧测试完全不变。
+        val dependencyEdgeSet =
+            if (mode == LayoutMode.DEPENDENCY) dependencyEdges(graph) else emptySet()
 
         fun orderChildren(children: List<GraphOutlineNode>): List<GraphOutlineNode> =
-            if (dependencyRank.isEmpty()) {
+            if (dependencyEdgeSet.isEmpty()) {
                 children.sortedBy { it.order }
             } else {
-                children.sortedWith(compareBy({ dependencyRank[it.path] ?: 0 }, { it.order }))
+                sortSiblingsByDependency(children, dependencyEdgeSet)
             }
 
         val nodes = ArrayList<Node>()
@@ -408,64 +408,75 @@ object TreeLayout {
     }
 
     /**
-     * 节点级依赖拓扑序（仅依赖视图使用）。
+     * 节点级前置边（仅依赖视图使用）。
      *
-     * 前置关系本来是**卡片级**的，这里上卷到节点级：边 `from → to` 表示「先学 from」。
-     * 用最长路径分级（Kahn 算法）：
-     * - 无前置的节点排在最前（rank 0），被依赖的越深越靠后；
-     * - 同层按 path 排序，保证同一份数据每次布局一致；
-     * - **成环时**把环里的节点统一压到最底层，既不前进也不无限循环。
-     *
-     * @return `节点 path → 层级`；没有可用的前置关系时返回空 map（调用方回落到大纲顺序）
+     * 前置本来是**卡片级**的，这里上卷到节点级：一条边 `from → to` 表示「先学 from，再学 to」。
+     * 同一节点内部卡片互相指向（`from == to`）直接丢弃，否则会产生自环。
      */
-    internal fun dependencyRanks(graph: MergedGraph): Map<String, Int> {
+    internal fun dependencyEdges(graph: MergedGraph): Set<Pair<String, String>> {
         val nodeOfCard = HashMap<String, String>()
         graph.cards.forEach { nodeOfCard[it.id] = it.outlinePath }
 
-        val outgoing = HashMap<String, MutableSet<String>>()
-        val indegree = HashMap<String, Int>()
-
+        val edges = LinkedHashSet<Pair<String, String>>()
         graph.cards.forEach { card ->
             card.prerequisites.forEach { link ->
                 val from = nodeOfCard[link.from]
                 val to = nodeOfCard[link.to]
-                if (from == null || to == null || from == to) return@forEach
-                if (outgoing.getOrPut(from) { LinkedHashSet() }.add(to)) {
-                    indegree[to] = (indegree[to] ?: 0) + 1
-                    indegree.getOrPut(from) { 0 }
+                if (from != null && to != null && from != to) {
+                    edges += Pair(from, to)
                 }
             }
         }
-        if (outgoing.isEmpty()) return emptyMap()
+        return edges
+    }
 
-        // 所有出现过的节点先给 0：**只在被指向时才赋值**会让入度为 0 的源节点没有层级，
-        // 后面就会被「成环兜底」误判成孤儿、反而压到最底层。
-        val rank = HashMap<String, Int>()
-        indegree.keys.forEach { rank[it] = 0 }
+    /**
+     * 兄弟节点内的**稳定**拓扑排序。
+     *
+     * ## 为什么只在兄弟之间排，而不是按全局深度排
+     *
+     * 曾经用「全局最长路径深度」当排序键，结果：**没有任何前置的节点深度为 0，
+     * 会被顶到同组最前**。`2.3 统计量依赖` 就是这样跑到 `2.1 形状依赖` 前面的 ——
+     * 数据少一条边，界面就给出一个看起来像 bug 的顺序（生成图谱里同样会发生）。
+     *
+     * 局部排序只修正「前置被排到了后面」这一种情况，不制造新顺序：
+     * 没有依赖关系的节点保持大纲顺序不动。
+     *
+     * 成环时退化为「按大纲顺序依次取出」，保证不死循环、不丢节点。
+     */
+    private fun sortSiblingsByDependency(
+        siblings: List<GraphOutlineNode>,
+        edges: Set<Pair<String, String>>,
+    ): List<GraphOutlineNode> {
+        val ordered = siblings.sortedBy { it.order }
+        val inGroup = ordered.mapTo(HashSet()) { it.path }
 
-        val processed = HashSet<String>()
-        val queue = ArrayDeque<String>()
-        indegree.filterValues { it == 0 }.keys.sorted().forEach { queue.addLast(it) }
+        val indegree = HashMap<String, Int>()
+        val outgoing = HashMap<String, MutableList<String>>()
+        ordered.forEach { indegree[it.path] = 0 }
 
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            processed += current
-            val currentRank = rank[current] ?: 0
-            outgoing[current].orEmpty().sorted().forEach { next ->
-                rank[next] = maxOf(rank[next] ?: 0, currentRank + 1)
-                val remaining = (indegree[next] ?: 1) - 1
-                indegree[next] = remaining
-                if (remaining == 0) queue.addLast(next)
+        edges.forEach { (from, to) ->
+            if (from in inGroup && to in inGroup) {
+                outgoing.getOrPut(from) { ArrayList() }.add(to)
+                indegree[to] = (indegree[to] ?: 0) + 1
             }
         }
+        // 组内没有任何依赖：保持大纲顺序
+        if (outgoing.isEmpty()) return ordered
 
-        // 真正没进过队列的（环里的节点）压到最底层，避免它们没有行号
-        val orphans = indegree.keys.filterNot { it in processed }
-        if (orphans.isNotEmpty()) {
-            val fallback = (rank.values.maxOrNull() ?: 0) + 1
-            orphans.forEach { rank[it] = fallback }
+        val result = ArrayList<GraphOutlineNode>(ordered.size)
+        val remaining = ordered.toMutableList()
+        while (remaining.isNotEmpty()) {
+            // 稳定：每一步都取「大纲顺序最靠前的可排节点」
+            val next = remaining.firstOrNull { (indegree[it.path] ?: 0) == 0 }
+                ?: remaining.first() // 成环兜底
+            remaining.remove(next)
+            result.add(next)
+            outgoing[next.path].orEmpty().forEach { target ->
+                indegree[target] = (indegree[target] ?: 1) - 1
+            }
         }
-        return rank
+        return result
     }
 
     /**

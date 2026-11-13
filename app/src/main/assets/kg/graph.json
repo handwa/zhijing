@@ -4078,6 +4078,12 @@
       "reason": "值域依赖以 Softmax 输出为例"
     },
     {
+      "from": "crd.s1-3-softmax",
+      "to": "crd.s2-3",
+      "kind": "required",
+      "reason": "统计量依赖讲的就是 Softmax 输出的归一化性质（沿类别维求和为 1）"
+    },
+    {
       "from": "crd.s1-2-relu",
       "to": "crd.s2-4",
       "kind": "required",

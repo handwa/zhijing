@@ -73,11 +73,50 @@ class DependencyLayoutTest {
         layout.nodes.single { it.nodePath == path }.y
 
     @Test
-    fun ranksFollowPrerequisiteDirection() {
-        val ranks = TreeLayout.dependencyRanks(graphWithReversedDependency())
+    fun dependencyEdgesFoldCardsToNodes() {
+        val edges = TreeLayout.dependencyEdges(graphWithReversedDependency())
 
-        // 前置关系写的是 b → a（先学 b），所以 a 的层级应为 1
-        assertEquals("实际分级：$ranks", 1, ranks["a"])
+        // 卡片级 crd.b → crd.a 上卷成节点级 b → a
+        assertEquals(setOf("b" to "a"), edges)
+    }
+
+    /**
+     * 回归：**没有任何前置关系的节点不允许被顶到最前**。
+     *
+     * 旧实现按「全局最长路径深度」排序，孤立节点深度为 0，会插到有前置的节点前面 ——
+     * `2.3 统计量依赖` 就是这么跑到 `2.1 形状依赖` 前面的，生成图谱里同样会发生。
+     */
+    @Test
+    fun isolatedSiblingIsNotPromoted() {
+        val graph = MergedGraph(
+            schemaVersion = "",
+            generatedAt = "",
+            outline = listOf(
+                node(
+                    "out.s1", "s1", order = 0,
+                    children = listOf(
+                        node("out.a", "a", 0),
+                        node("out.b", "b", 1),
+                        node("out.c", "c", 2),
+                    ),
+                ),
+            ),
+            // 只有 a → b 一条边；c 没有任何依赖
+            cards = listOf(
+                card("crd.a", "a"),
+                card("crd.b", "b", listOf(PrerequisiteLink("crd.a", "crd.b", PrerequisiteKind.REQUIRED))),
+                card("crd.c", "c"),
+            ),
+            claims = emptyMap(),
+            edges = emptyMap(),
+        )
+
+        val layout = TreeLayout.layout(graph, TreeLayout.LayoutMode.DEPENDENCY)
+
+        assertTrue(
+            "c 不该被提到 b 前面：a=${yOf(layout, "a")} b=${yOf(layout, "b")} c=${yOf(layout, "c")}",
+            yOf(layout, "a") < yOf(layout, "b") && yOf(layout, "b") < yOf(layout, "c"),
+        )
     }
 
     @Test
