@@ -23,3 +23,6 @@ build/
 
 # 大体积模型资产不进仓库（约 2 GB），由开发者本地放置
 **/assets/model/*.gguf
+/CODEBUDDY.md
+/.codebuddy/plans/member4-data-layer_391cfee6.md
+/doc/plan.md
