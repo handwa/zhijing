@@ -346,11 +346,20 @@ object TreeLayout {
                 if (!seenPrereq.add("$fromPath->$toPath")) return@forEach
                 val from = positionOf[fromPath] ?: return@forEach
                 val to = positionOf[toPath] ?: return@forEach
+                // 端点几何：横向 tidy tree 里同层节点共享一列，所以大多数前置
+                // 是「同列上下两节点」。旧画法从源节点**顶边**中点连到目标节点
+                // **底边**中点，链式依赖会斜穿整列、盖过中间所有节点，读不出依赖。
+                // 改为：
+                // - 同列：源下边中 → 目标上边中的竖线，箭头指向目标顶部 ——
+                //   依赖链就是列内一条向下的箭头链；
+                // - 跨列：源右边中 → 目标左边中，与阅读方向一致（层级线同向，
+                //   靠颜色/粗细/箭头区分）。
+                val sameColumn = kotlin.math.abs(from.x - to.x) < 1f
                 lines += Line(
-                    fromX = from.x + from.width / 2,
-                    fromY = from.y,
-                    toX = to.x + to.width / 2,
-                    toY = to.y + to.height,
+                    fromX = if (sameColumn) from.x + from.width / 2 else from.x + from.width,
+                    fromY = if (sameColumn) from.y + from.height else from.y + from.height / 2,
+                    toX = if (sameColumn) to.x + to.width / 2 else to.x,
+                    toY = if (sameColumn) to.y else to.y + to.height / 2,
                     style = when (link.kind) {
                         PrerequisiteKind.REQUIRED -> Line.Style.PREREQUISITE_REQUIRED
                         PrerequisiteKind.RECOMMENDED -> Line.Style.PREREQUISITE_RECOMMENDED

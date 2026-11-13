@@ -357,13 +357,22 @@ private fun GraphCardList(
     onDescend: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 大纲筛选：选中一级章节时，其下所有卡片都显示
+    // 大纲筛选：选中一级章节时，只显示其子树内的卡片。
+    //
+    // 之前是 `claims.isNotEmpty() || outlinePath in paths` —— 出厂卡片几乎都有命题，
+    // 这个 OR 让它们在任何选中状态下都显示，筛选形同虚设（选中「高等数学」
+    // 仍能看到 Transformer 的卡片）。该 OR 是单一主题时代的残留：当时唯一的
+    // 分区根节点本来就包含全部卡片，条件不起作用也没人发现。
     val visibleCards = if (selectedOutline == null) {
         graph.cards
     } else {
         val node = findNode(graph.outline, selectedOutline)
-        val paths = collectPaths(node)
-        graph.cards.filter { it.claims.isNotEmpty() || it.outlinePath in paths }
+        // 选中节点查不到（图谱重建后旧选中残留）时退回全部，避免空白页
+        if (node == null) graph.cards
+        else {
+            val paths = collectPaths(node)
+            graph.cards.filter { it.outlinePath in paths }
+        }
     }
 
     Column(modifier.fillMaxSize()) {
