@@ -98,7 +98,10 @@ class GraphAssembler(
         return combine(runtimeFlow, data.kgStates.observeAllStates()) { runtime, states ->
             // 用悬挂点保证 assets 已解析（首次调用会在 Default 线程完成解析）
             val bundled = withContext(Dispatchers.IO) { bundledGraph() }
-            merge(bundled, runtime, states)
+            // 生成图谱也要并入：merge 的 generated 参数默认 emptyList，
+            // 之前漏传导致 observe 流里永远只有出厂图谱（一次性 load() 碰巧没暴露）。
+            val generated = data.kgGenerated.listGraphs()
+            merge(bundled, runtime, states, generated)
         }.flowOn(Dispatchers.Default)
     }
 
@@ -293,6 +296,15 @@ class GraphAssembler(
      * 每个主题一个根节点（`gen.<topicId>`），其下是 `OutlineBuilder` 推出的层级。
      * 生成卡片**没有命题**（内容来自模型切块，不是命题抽取），因此 `badgeStatus` 为 null、
      * `descendable` 为 false —— 这是设计决定：广度生成不产出可判断的断言。
+     *
+     * ## 层级重建：信 level，不信 parentPath
+     *
+     * 与 [buildOutline] 的教训一致（见其注释）：按 `parentPath` 建树一旦断链
+     * （父节点被区间校验丢弃、或旧数据没写 `parent_path`），挂在它下面的整棵子树会
+     * **静默消失** —— 结构图上只剩一个孤零零的主题根，没有层级连线、没有节点。
+     * 因此这里改为与 [buildOutline] 相同的「祖先栈」：按 order 遍历，把节点挂到
+     * 「最近的、level 比自己小的」节点下。OutlineBuilder 本来就是用同一套栈逻辑
+     * 算出 parentPath 的，正常数据两种方式结果完全一致。
      */
     private fun buildGeneratedTrees(
         graphs: List<GeneratedGraph>,
@@ -305,7 +317,7 @@ class GraphAssembler(
 
         return graphs.map { meta ->
             val topicCards = cardsByTopic[meta.topicId].orEmpty()
-            val nodes = outlineByTopic[meta.topicId].orEmpty()
+            val nodes = outlineByTopic[meta.topicId].orEmpty().sortedBy { it.order }
 
             // 主题根节点
             val rootPath = "gen.${meta.topicId}"
@@ -320,25 +332,36 @@ class GraphAssembler(
                 cardIds = emptyList()
             )
 
-            // 按 parentPath 建树；顶层节点的 parent 指向主题根
-            val childrenOf = nodes.groupBy { it.parentPath ?: rootPath }
+            // 1) 祖先栈：给每个节点解析出父节点（按 level，不依赖 parentPath）。
+            //    nodes 已按 order 升序，「先出现的是父」这一前提与 buildOutline 相同。
+            val parentOf = HashMap<GeneratedOutlineNode, GeneratedOutlineNode?>()
+            val stack = ArrayList<GeneratedOutlineNode>()
+            nodes.forEach { node ->
+                while (stack.isNotEmpty() && stack.last().level >= node.level) {
+                    stack.removeAt(stack.size - 1)
+                }
+                parentOf[node] = stack.lastOrNull()
+                stack.add(node)
+            }
+
+            // 2) 按解析出的父建 children 索引；顶层节点（parentOf 为 null）挂主题根。
+            //    groupBy 保留遍历顺序，children 天然按 order 排列。
+            val childrenOfNode = nodes.groupBy { parentOf[it] }
             fun build(node: GeneratedOutlineNode): GraphOutlineNode {
                 val childCards = topicCards.filter { it.outlinePath == node.path }
                 return GraphOutlineNode(
                     id = "out.${node.path}",
                     title = node.title,
                     level = (node.level + 1).coerceAtMost(3), // 主题根占一级
-                    parentId = "out.${node.parentPath ?: rootPath}",
+                    parentId = parentOf[node]?.let { "out.${it.path}" } ?: "out.$rootPath",
                     path = node.path,
                     order = node.order,
-                    children = childrenOf[node.path].orEmpty()
-                        .sortedBy { it.order }
-                        .map(::build),
+                    children = childrenOfNode[node].orEmpty().map(::build),
                     cardIds = childCards.map { it.cardId }
                 )
             }
 
-            root.copy(children = childrenOf[rootPath].orEmpty().sortedBy { it.order }.map(::build))
+            root.copy(children = childrenOfNode[null].orEmpty().map(::build))
         }
     }
 

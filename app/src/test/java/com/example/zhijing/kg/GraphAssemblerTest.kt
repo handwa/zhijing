@@ -5,6 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.ClaimSource
+import com.zhijing.data.model.GeneratedCard
+import com.zhijing.data.model.GeneratedGraph
+import com.zhijing.data.model.GeneratedOutlineNode
 import com.zhijing.data.model.ProbeStatus
 import com.zhijing.data.model.RuntimeClaim
 import java.io.File
@@ -46,7 +49,12 @@ class GraphAssemblerTest {
         // 用真实单例：ZhiJingData 的构造器是 internal，跨模块测试不可见。
         // Robolectric 把数据库落在隔离的测试沙箱里，不污染开发机上的真实数据。
         data = ZhiJingData.get(context)
-        runBlocking { data.kgClaims.deleteAll(); data.kgStates.deleteAll() }
+        // Robolectric 在同一个类里共享数据库文件，生成图谱也要清掉，
+        // 否则「大纲树按父子关系重建」这类假设只有出厂图谱的用例会被泄漏数据破坏
+        runBlocking {
+            data.kgClaims.deleteAll(); data.kgStates.deleteAll()
+            data.kgGenerated.listGraphs().forEach { data.kgGenerated.deleteGraph(it.topicId) }
+        }
         assembler = GraphAssembler(context, data)
         // Robolectric 单测默认不挂载 app/src/main/assets，直接把真实文件内容注入
         assembler.seedBundled(loadRealGraph())
@@ -54,7 +62,10 @@ class GraphAssemblerTest {
 
     @After
     fun tearDown() {
-        runBlocking { data.kgClaims.deleteAll(); data.kgStates.deleteAll() }
+        runBlocking {
+            data.kgClaims.deleteAll(); data.kgStates.deleteAll()
+            data.kgGenerated.listGraphs().forEach { data.kgGenerated.deleteGraph(it.topicId) }
+        }
     }
 
     /**
@@ -291,6 +302,99 @@ class GraphAssemblerTest {
         assertEquals("1.1 Linear 层", assembler.cardTitleOf("crd.s1-1-linear"))
         // 云端新建的卡片不在出厂图谱里，返回 null 让 UI 退化显示路径
         assertNull(assembler.cardTitleOf("crd.content.42"))
+    }
+
+    /* --------------------------------------------------- 生成图谱合并 */
+
+    @Test
+    fun `生成图谱进入合并结果且结构图有层级连线`() = runBlocking {
+        val topicId = "ut-gen-1"
+        data.kgGenerated.save(
+            meta = GeneratedGraph(
+                topicId = topicId,
+                title = "测试主题",
+                createdTime = 1L,
+                providerId = "deepseek",
+                blockCount = 2,
+                verified = false
+            ),
+            outline = listOf(
+                GeneratedOutlineNode(topicId, path = "ch1", parentPath = null, title = "第一章", level = 1, order = 0),
+                GeneratedOutlineNode(topicId, path = "ch1.sec1", parentPath = "ch1", title = "1.1 节", level = 2, order = 1),
+                GeneratedOutlineNode(topicId, path = "ch2", parentPath = null, title = "第二章", level = 1, order = 2)
+            ),
+            cards = listOf(
+                GeneratedCard(topicId, cardId = "crd.gen.$topicId.0", outlinePath = "ch1.sec1", title = "块A", summary = "", body = "正文A", order = 0),
+                GeneratedCard(topicId, cardId = "crd.gen.$topicId.1", outlinePath = "ch2", title = "块B", summary = "", body = "正文B", order = 1)
+            )
+        )
+
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val genRoot = merged.outline.first { it.path == "gen.$topicId" }
+        assertEquals(2, genRoot.children.size)
+        val ch1 = genRoot.children.first { it.path == "ch1" }
+        assertEquals(1, ch1.children.size)
+        assertEquals(listOf("crd.gen.$topicId.0"), ch1.children.single().cardIds)
+
+        // 结构图：生成子树内部要有层级连线（根→ch1、ch1→ch1.sec1、根→ch2）
+        val layout = com.example.zhijing.kg.ui.TreeLayout.layout(merged)
+        val genPaths = setOf("gen.$topicId", "ch1", "ch1.sec1", "ch2")
+        val hierarchyLines = layout.lines.filter {
+            it.style == com.example.zhijing.kg.ui.TreeLayout.Line.Style.HIERARCHY &&
+                it.fromNode in genPaths && it.toNode in genPaths
+        }
+        assertEquals(3, hierarchyLines.size)
+    }
+
+    @Test
+    fun `parentPath断链时按level重建层级不丢子树`() = runBlocking {
+        val topicId = "ut-gen-2"
+        data.kgGenerated.save(
+            meta = GeneratedGraph(
+                topicId = topicId,
+                title = "断链主题",
+                createdTime = 1L,
+                providerId = "deepseek",
+                blockCount = 1,
+                verified = false
+            ),
+            outline = listOf(
+                GeneratedOutlineNode(topicId, path = "ch1", parentPath = null, title = "第一章", level = 1, order = 0),
+                // parentPath 指向不存在的节点：旧实现会把该子树静默丢掉
+                GeneratedOutlineNode(topicId, path = "ch1.sec1", parentPath = "ghost", title = "1.1 节", level = 2, order = 1)
+            ),
+            cards = listOf(
+                GeneratedCard(topicId, cardId = "crd.gen.$topicId.0", outlinePath = "ch1.sec1", title = "块A", summary = "", body = "正文A", order = 0)
+            )
+        )
+
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val genRoot = merged.outline.first { it.path == "gen.$topicId" }
+        assertEquals(1, genRoot.children.size)
+        val ch1 = genRoot.children.single()
+        assertEquals("ch1", ch1.path)
+        // level=2 < 断链也拦不住：按祖先栈重建后仍挂在 ch1 下
+        assertEquals(1, ch1.children.size)
+        assertEquals("ch1.sec1", ch1.children.single().path)
+        assertEquals("crd.gen.$topicId.0", ch1.children.single().cardIds.single())
+    }
+
+    @Test
+    fun `观察流也包含生成图谱`() = runBlocking {
+        val topicId = "ut-gen-3"
+        data.kgGenerated.save(
+            meta = GeneratedGraph(topicId = topicId, title = "观察流主题", createdTime = 1L, blockCount = 1, verified = false),
+            outline = listOf(
+                GeneratedOutlineNode(topicId, path = "only", parentPath = null, title = "唯一块", level = 1, order = 0)
+            ),
+            cards = listOf(
+                GeneratedCard(topicId, cardId = "crd.gen.$topicId.0", outlinePath = "only", title = "块", summary = "", body = "正文", order = 0)
+            )
+        )
+
+        val merged = assembler.observe(includeRuntimeClaims = false).first()
+        assertTrue(merged.outline.any { it.path == "gen.$topicId" })
+        assertTrue(merged.cards.any { it.id == "crd.gen.$topicId.0" })
     }
 
     private fun runtimeClaim(

@@ -66,12 +66,16 @@ import kotlin.math.min
 fun GraphTreeView(
     graph: MergedGraph,
     /**
-     * 点击某个节点。参数是被点节点的路径。
+     * 点击某个节点。参数是被点节点的路径；**点在空白处传 null**。
+     *
+     * 为什么需要 null：选中态下与选中无关的层级线会被整体隐藏（见 [drawLines]），
+     * 之前没有任何取消选中的交互 —— 点空白没反应、点别的节点只是换一个选中，
+     * 一旦点过节点，层级连线看起来就「永久消失」了。点空白处是最自然的退出方式。
      *
      * 结构图不再单独画卡片（卡片与节点 1:1、标题 100% 重复），
      * 因此**节点是唯一入口**：点它 → 底部弹窗给出该节点的卡片内容。
      */
-    onNodeClick: (nodePath: String) -> Unit,
+    onNodeClick: (nodePath: String?) -> Unit,
     /** 当前选中的节点路径；选中后与它相连的线高亮、其余淡出。 */
     selectedNode: String?,
     /** 搜索/切换视图时把某个节点移到视口中央；null 表示不主动移动视图。 */
@@ -186,7 +190,8 @@ fun GraphTreeView(
                                 .filter { dpX >= it.x && dpX <= it.x + it.width &&
                                     dpY >= it.y && dpY <= it.y + it.height }
                                 .minByOrNull { it.width * it.height }
-                            if (hit != null) onNodeClick(hit.nodePath)
+                            // 命中 = 选中该节点；空白 = 取消选中（恢复全部层级线）
+                            onNodeClick(hit?.nodePath)
                         }
                     }
                 }

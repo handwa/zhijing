@@ -652,11 +652,22 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                                         buildString {
                                             append("已生成「${outcome.title}」：")
                                             append("${outcome.outlineCount} 个大纲节点、")
-                                            append("${outcome.cardCount} 张卡片。\n")
+                                            append("${outcome.cardCount} 张卡片、")
+                                            append("${outcome.prerequisiteCount} 条前置关系。\n")
                                             if (outcome.verified) {
                                                 append("内容来自你提供的原文，有出处。")
                                             } else {
                                                 append("⚠ 内容由 AI 撰写，未经核实。")
+                                            }
+                                            // 前置关系是「只看依赖」图层的唯一输入：
+                                            // 0 条时依赖视图与层级视图布局完全相同，必须提前告知
+                                            if (outcome.prerequisiteCount == 0) {
+                                                append("\n没有可用的前置关系，「只看依赖」将与层级视图相同。")
+                                            }
+                                            // 抽取/校验警告（含被丢弃的前置关系）一并透出，
+                                            // 之前只进 logcat，用户看不到「为什么依赖视图没变化」
+                                            if (outcome.warnings.isNotEmpty()) {
+                                                append("\n⚠ ${outcome.warnings.take(2).joinToString("；")}")
                                             }
                                             append("\n去「知识图谱」页可以看到它。")
                                         }

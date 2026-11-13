@@ -183,7 +183,8 @@ fun GraphScreen(
                 graph = graph,
                 // 点节点 → 选中它（高亮相关连线）+ 底部弹窗展示内容
                 onNodeClick = { path ->
-                    selectedNodePath = if (selectedNodePath == path) null else path
+                    // 点空白处（null）取消选中；再点同一节点也取消
+                    selectedNodePath = if (path == null || selectedNodePath == path) null else path
                 },
                 selectedNode = selectedNodePath,
                 focusRequest = focusRequest,
