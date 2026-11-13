@@ -117,14 +117,9 @@ fun GraphScreen(
         return
     }
 
-    // 大纲筛选：选中一级章节时，其下所有卡片都显示
-    val visibleCards = if (selectedOutline == null) {
-        graph.cards
-    } else {
-        val node = findNode(graph.outline, selectedOutline!!)
-        val paths = collectPaths(node)
-        graph.cards.filter { it.claims.isNotEmpty() || it.outlinePath in paths }
-    }
+    // 大纲筛选在 GraphCardList 内部完成（它才是真正渲染卡片的地方）。
+    // 这里原来有一份同样的 visibleCards，筛选修好后它就没人用了；
+    // 留着会让读代码的人以为筛选仍带 `claims.isNotEmpty()` 那个失效条件，故删除。
 
     Column(modifier.fillMaxSize()) {
         // ---- 顶栏：标题 + 四态芯片 ----
