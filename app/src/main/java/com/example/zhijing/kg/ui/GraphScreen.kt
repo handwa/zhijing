@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -47,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -188,6 +191,7 @@ fun GraphScreen(
                 },
                 selectedNode = selectedNodePath,
                 focusRequest = focusRequest,
+                onFocusConsumed = { focusRequest = null },
                 modifier = Modifier.weight(1f),
             )
         } else {
@@ -279,6 +283,10 @@ private fun GraphSearchDialog(
     onDismiss: () -> Unit,
 ) {
     val hits = remember(query, nodes) { GraphSearch.search(nodes, query) }
+    val inputFocus = remember { FocusRequester() }
+    // 弹窗一出现就把焦点交给输入框：否则要先点一下输入框才会弹键盘，
+    // 在「打开就为了搜」的场景里等于多一次无效操作。
+    LaunchedEffect(Unit) { inputFocus.requestFocus() }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -292,7 +300,9 @@ private fun GraphSearchDialog(
                     onValueChange = onQueryChange,
                     singleLine = true,
                     label = { Text("搜索节点") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(inputFocus),
                 )
                 Spacer(Modifier.height(ZjSpace.sm))
                 when {

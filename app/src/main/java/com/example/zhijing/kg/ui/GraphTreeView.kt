@@ -80,6 +80,8 @@ fun GraphTreeView(
     selectedNode: String?,
     /** 搜索/切换视图时把某个节点移到视口中央；null 表示不主动移动视图。 */
     focusRequest: GraphFocusRequest? = null,
+    /** 聚焦完成（或目标不在当前布局里）后回调，宿主应把请求清空。 */
+    onFocusConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // 「只看依赖」：隐藏层级线，并让同一父节点下按依赖顺序排列。
@@ -145,7 +147,12 @@ fun GraphTreeView(
         if (viewportPx.width <= 0f || viewportPx.height <= 0f) return@LaunchedEffect
 
         val node = layout.nodes.firstOrNull { it.nodePath == request.nodePath }
-            ?: return@LaunchedEffect
+        if (node == null) {
+            // 目标不在当前布局里（例如依赖视图过滤掉了孤立节点）。
+            // 必须消费掉请求，否则每次视口变化都会重试一遍，且用户得不到任何反馈。
+            onFocusConsumed()
+            return@LaunchedEffect
+        }
 
         applyTransform(
             nextScale = scale,
@@ -157,6 +164,9 @@ fun GraphTreeView(
                 renderScale = fitScale * scale,
             ),
         )
+        // 消费掉请求：否则键盘弹出、旋转、分屏等任何视口变化都会把视图
+        // 强行拉回「上次搜索的节点」，覆盖用户刚才手动拖到的位置。
+        onFocusConsumed()
     }
 
     val colors = MaterialTheme.colorScheme
@@ -494,7 +504,9 @@ private fun DrawScope.drawLines(
                     color = c,
                     from = Offset(line.fromX, line.fromY),
                     to = Offset(line.toX, line.toY),
-                    size = 7f * unit,
+                    // 16px（约 5dp @3x）。原来 7px，投到大屏再缩放后基本看不见 —— 客户反馈过。
+                    // `unit` 把屏幕像素换算回内容坐标，所以放大缩小箭头的**视觉大小不变**。
+                    size = 16f * unit,
                 )
             }
 
@@ -512,7 +524,8 @@ private fun DrawScope.drawLines(
                     color = c,
                     from = Offset(line.fromX, line.fromY),
                     to = Offset(line.toX, line.toY),
-                    size = 6f * unit,
+                    // 比必须前置小一档，但仍然要能一眼分辨方向
+                    size = 13f * unit,
                 )
             }
 
