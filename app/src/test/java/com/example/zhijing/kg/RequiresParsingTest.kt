@@ -62,7 +62,10 @@ class RequiresParsingTest {
                 block("2 进阶", requires = listOf(req("不存在的块")))
             )
         )
-        assertTrue(r.prerequisites.isEmpty())
+        // 模型的非法引用必须被丢弃：结果里不允许出现 REQUIRED 边。
+        // （全部被丢弃后会触发学习顺序兜底链，因此剩下的是 RECOMMENDED 的 0→1。）
+        assertTrue(r.prerequisites.none { it.kind == PrerequisiteKind.REQUIRED })
+        assertEquals(listOf(0 to 1), r.prerequisites.map { it.fromIndex to it.toIndex })
     }
 
     @Test
@@ -83,7 +86,13 @@ class RequiresParsingTest {
                 block("3 后记")
             )
         )
-        assertTrue("引用后面的块应被丢弃", r.prerequisites.isEmpty())
+        // 非法的前向引用被丢弃（不允许出现 REQUIRED 边）；
+        // 全部被丢弃后触发学习顺序兜底链：0→1、1→2
+        assertTrue(r.prerequisites.none { it.kind == PrerequisiteKind.REQUIRED })
+        assertEquals(
+            listOf(0 to 1, 1 to 2),
+            r.prerequisites.map { it.fromIndex to it.toIndex }
+        )
     }
 
     @Test

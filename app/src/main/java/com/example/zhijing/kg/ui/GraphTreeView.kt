@@ -234,7 +234,9 @@ fun GraphTreeView(
                 drawGroups(layout, measurer, colors, density.density)
                 drawLines(
                     layout = layout,
-                    hierarchyColor = colors.outlineVariant,
+                    // 层级线用 outline 而不是 outlineVariant：后者在浅色主题下
+                    // 与背景几乎同色，用户反馈「看不到层级连线」即由此而来
+                    hierarchyColor = colors.outline,
                     crossColor = colors.outline,
                     requiredColor = colors.tertiary,
                     recommendedColor = colors.tertiary.copy(alpha = 0.55f),
@@ -419,7 +421,7 @@ private fun DrawScope.drawGroups(
  *
  * | 样式 | 线型 | 颜色 | 粗细 | 箭头 |
  * |---|---|---|---|---|
- * | 章节层级 | 折线 | 描边色（最淡） | 1.2 | 无 |
+ * | 章节层级 | 折线 | 描边色 | 1.6 | 无 |
  * | **必须前置** | **实线** | **赭黄（Ochre）** | **3.0** | **有** |
  * | **推荐前置** | **虚线** | 赭黄半透明 | 1.8 | **有** |
  * | 交叉链接 | 细虚线 | 描边色（最淡） | 1.0 | 无 |
@@ -468,11 +470,12 @@ private fun DrawScope.drawLines(
 
         when (line.style) {
             // 层级线：横向布局下是「父右中 → 子左中」的水平折线。
-            // 保持极淡：它是**背景结构**，不该和依赖关系抢注意力。
+            // 它是背景结构，但要**看得见**：过淡过细时用户会把平铺的节点
+            // 读成「没有层级连线」（生成图谱反馈过）。
             TreeLayout.Line.Style.HIERARCHY -> {
                 val c = hierarchyColor.copy(alpha = hierarchyColor.alpha * alphaScale)
                 val midX = line.fromX + (line.toX - line.fromX) * 0.5f
-                val w = 1.2f * unit * widthScale
+                val w = 1.6f * unit * widthScale
                 drawLine(c, Offset(line.fromX, line.fromY), Offset(midX, line.fromY), strokeWidth = w)
                 drawLine(c, Offset(midX, line.fromY), Offset(midX, line.toY), strokeWidth = w)
                 drawLine(c, Offset(midX, line.toY), Offset(line.toX, line.toY), strokeWidth = w)

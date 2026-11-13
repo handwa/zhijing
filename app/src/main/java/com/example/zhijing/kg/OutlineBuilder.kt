@@ -122,6 +122,34 @@ object OutlineBuilder {
     }
 
     /**
+     * 学习顺序兜底：模型一条 `requires` 都没给时，按块的排列顺序补一条
+     * 「推荐前置」链（前一块 → 当前块）。
+     *
+     * 为什么敢这么做：块的排列本身就是「按学习顺序」（提示词任务第 1 条要求），
+     * 章级粒度上「先学前一块、再学当前块」几乎总成立。标 [PrerequisiteKind.RECOMMENDED]
+     * （虚线）而不是 REQUIRED：它只是顺序提示，不是模型判断出的严格依赖。
+     *
+     * 模型给过**至少一条** requires（校验后仍有存活）时完全尊重模型，不做兜底 ——
+     * 零散的模型输出再混上补链，拓扑会变得不可解释。
+     */
+    private fun withLearningOrderFallback(
+        blockCount: Int,
+        resolved: List<ResolvedPrerequisite>,
+        warnings: MutableList<String>
+    ): List<ResolvedPrerequisite> {
+        if (resolved.isNotEmpty() || blockCount < 2) return resolved
+        warnings += "模型未给出前置关系，已按学习顺序补「推荐前置」链"
+        return (1 until blockCount).map { i ->
+            ResolvedPrerequisite(
+                fromIndex = i - 1,
+                toIndex = i,
+                kind = PrerequisiteKind.RECOMMENDED,
+                why = "学习顺序：先掌握前一块再学这块"
+            )
+        }
+    }
+
+    /**
      * 把模型的分块加工成「大纲 + 卡片」。
      *
      * @param content 原文（区间基于它计算）
@@ -203,7 +231,7 @@ object OutlineBuilder {
             )
         }
 
-        return Result(nodes, cards, warnings, resolveRequires(valid))
+        return Result(nodes, cards, warnings, withLearningOrderFallback(valid.size, resolveRequires(valid), warnings))
     }
 
     /** 大纲最大层级，与 `graph.schema.json` 的 `level ≤ 3` 一致。 */
@@ -284,7 +312,7 @@ object OutlineBuilder {
                 body = block.body.trim()
             )
         }
-        return Result(nodes, cards, warnings, resolveRequires(valid))
+        return Result(nodes, cards, warnings, withLearningOrderFallback(valid.size, resolveRequires(valid), warnings))
     }
 
     /**

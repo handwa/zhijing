@@ -145,4 +145,72 @@ class OutlineBuilderTest {
         // 两个块标题相同，路径必须不同，否则会互相覆盖
         assertEquals(2, r.outline.map { it.path }.distinct().size)
     }
+
+    /* ---------------------------------------------- 学习顺序兜底链 */
+
+    @Test
+    fun `模型未给前置时按学习顺序补推荐链`() {
+        val r = OutlineBuilder.build(
+            content,
+            listOf(
+                block("1 甲", 0, 10),
+                block("2 乙", 10, 20),
+                block("3 丙", 20, 30)
+            )
+        )
+        // n 个块补 n-1 条链：前一块 → 当前块
+        assertEquals(2, r.prerequisites.size)
+        r.prerequisites.forEachIndexed { i, p ->
+            assertEquals(i, p.fromIndex)
+            assertEquals(i + 1, p.toIndex)
+            assertEquals(PrerequisiteKind.RECOMMENDED, p.kind)
+        }
+        // 兜底必须透出警告，生成结果消息才能解释「依赖视图为什么长这样」
+        assertTrue(r.warnings.any { it.contains("前置") })
+    }
+
+    @Test
+    fun `模型给过前置时不做兜底`() {
+        val r = OutlineBuilder.build(
+            content,
+            listOf(
+                block("1 甲", 0, 10),
+                OutlineBuilder.RawBlock(
+                    title = "2 乙",
+                    summary = "摘要",
+                    bodyStart = 10,
+                    bodyEnd = 20,
+                    requires = listOf(
+                        OutlineBuilder.RawRequire(
+                            on = "1 甲",
+                            kind = PrerequisiteKind.RECOMMENDED
+                        )
+                    )
+                )
+            )
+        )
+        // 模型的输出原样保留，不追加补链
+        assertEquals(1, r.prerequisites.size)
+        assertEquals(0, r.prerequisites[0].fromIndex)
+        assertEquals(1, r.prerequisites[0].toIndex)
+    }
+
+    @Test
+    fun `单块不补兜底链`() {
+        val r = OutlineBuilder.build(content, listOf(block("甲", 0, 10)))
+        assertTrue(r.prerequisites.isEmpty())
+    }
+
+    @Test
+    fun `无原文模式同样兜底`() {
+        val r = OutlineBuilder.buildFromBodies(
+            listOf(
+                // bodyStart/bodyEnd 在无原文模式下无意义，占位即可
+                OutlineBuilder.RawBlock(title = "甲", summary = "", bodyStart = 0, bodyEnd = 0, body = "正文甲"),
+                OutlineBuilder.RawBlock(title = "乙", summary = "", bodyStart = 0, bodyEnd = 0, body = "正文乙")
+            )
+        )
+        assertEquals(1, r.prerequisites.size)
+        assertEquals(PrerequisiteKind.RECOMMENDED, r.prerequisites[0].kind)
+    }
 }
