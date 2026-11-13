@@ -78,7 +78,19 @@ fun GraphTreeView(
     focusRequest: GraphFocusRequest? = null,
     modifier: Modifier = Modifier,
 ) {
-    val layout = remember(graph) { TreeLayout.layout(graph) }
+    // 「只看依赖」：隐藏层级线，并让同一父节点下按依赖顺序排列。
+    // 回答的是「我该按什么顺序学」，而层级视图回答「这个主题由哪些部分组成」。
+    var dependencyOnly by remember { mutableStateOf(false) }
+    val layout = remember(graph, dependencyOnly) {
+        TreeLayout.layout(
+            graph = graph,
+            mode = if (dependencyOnly) {
+                TreeLayout.LayoutMode.DEPENDENCY
+            } else {
+                TreeLayout.LayoutMode.HIERARCHY
+            },
+        )
+    }
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
 
@@ -224,6 +236,8 @@ fun GraphTreeView(
                     density = density.density,
                     pxPerDp = pxPerDp,
                     selectedNode = selectedNode,
+                    // 依赖视图里层级线是噪音：两种关系混在一起正是要解决的问题
+                    hideHierarchy = dependencyOnly,
                 )
                 drawNodes(layout, measurer, colors, density.density, selectedNode)
             }
@@ -242,6 +256,12 @@ fun GraphTreeView(
             tonalElevation = 2.dp,
         ) {
             androidx.compose.foundation.layout.Row {
+                TextButton(onClick = {
+                    dependencyOnly = !dependencyOnly
+                    offset = Offset.Zero
+                }) {
+                    Text(if (dependencyOnly) "返回层级" else "只看依赖")
+                }
                 TextButton(onClick = {
                     applyTransform((scale * 1.25f).coerceAtMost(MAX_SCALE), offset)
                 }) {
@@ -414,6 +434,8 @@ private fun DrawScope.drawLines(
     density: Float,
     pxPerDp: Float,
     selectedNode: String?,
+    /** 整体隐藏层级线（依赖视图用）。 */
+    hideHierarchy: Boolean = false,
 ) {
     val unit = 1f / pxPerDp.coerceAtLeast(0.01f)
     // 虚线间距按屏幕像素固定，因此同乘 unit
@@ -434,9 +456,10 @@ private fun DrawScope.drawLines(
 
         // 层级线在选中时进一步淡化：它是背景，不该盖过依赖关系
         val isHierarchy = line.style == TreeLayout.Line.Style.HIERARCHY
-        val hideHierarchy = selectedNode != null && isHierarchy && !related
+        // 依赖视图整体不要层级线；选中态下再额外隐藏与选中无关的层级线
+        val skip = isHierarchy && (hideHierarchy || (selectedNode != null && !related))
 
-        if (hideHierarchy) return@forEach
+        if (skip) return@forEach
 
         when (line.style) {
             // 层级线：横向布局下是「父右中 → 子左中」的水平折线。

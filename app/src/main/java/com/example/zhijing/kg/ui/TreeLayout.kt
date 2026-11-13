@@ -214,9 +214,21 @@ object TreeLayout {
      * 父节点的行号取其第一个子与最后一个子的中点。这样父节点总是垂直居中对齐子节点，
      * 连线不会出现无谓的斜拉。
      */
-    fun layout(graph: MergedGraph): Result {
+    fun layout(graph: MergedGraph, mode: LayoutMode = LayoutMode.HIERARCHY): Result {
         val topics = graph.outline.sortedBy { it.order }
         if (topics.isEmpty()) return Result(emptyList(), emptyList(), 0f, 0f)
+
+        // 依赖视图：先把「卡片级前置」上卷成节点级拓扑序，再按它排兄弟节点。
+        // 层级视图返回空 map，走原来的大纲顺序 —— 这条分支保证旧行为与旧测试完全不变。
+        val dependencyRank =
+            if (mode == LayoutMode.DEPENDENCY) dependencyRanks(graph) else emptyMap()
+
+        fun orderChildren(children: List<GraphOutlineNode>): List<GraphOutlineNode> =
+            if (dependencyRank.isEmpty()) {
+                children.sortedBy { it.order }
+            } else {
+                children.sortedWith(compareBy({ dependencyRank[it.path] ?: 0 }, { it.order }))
+            }
 
         val nodes = ArrayList<Node>()
         val lines = ArrayList<Line>()
@@ -235,7 +247,7 @@ object TreeLayout {
             var nextRow = 0f
 
             fun assignRows(node: GraphOutlineNode) {
-                val children = node.children.sortedBy { it.order }
+                val children = orderChildren(node.children)
                 if (children.isEmpty()) {
                     // 叶子：一个叶子独占一行。
                     // 若它挂了多张卡，行高会被撑大（见下面的 rowHeight），
@@ -375,6 +387,76 @@ object TreeLayout {
         val contentWidth = maxRight + PADDING * 2
         val contentHeight = groupTop
         return Result(nodes, lines, contentWidth, contentHeight, groups)
+    }
+
+    /** 结构图的两种读法。 */
+    enum class LayoutMode {
+        /** 默认：按大纲顺序排，回答「这个主题由哪些部分组成」。 */
+        HIERARCHY,
+
+        /** 只看依赖：同一父节点下按依赖拓扑序排，回答「我该按什么顺序学」。 */
+        DEPENDENCY,
+    }
+
+    /**
+     * 节点级依赖拓扑序（仅依赖视图使用）。
+     *
+     * 前置关系本来是**卡片级**的，这里上卷到节点级：边 `from → to` 表示「先学 from」。
+     * 用最长路径分级（Kahn 算法）：
+     * - 无前置的节点排在最前（rank 0），被依赖的越深越靠后；
+     * - 同层按 path 排序，保证同一份数据每次布局一致；
+     * - **成环时**把环里的节点统一压到最底层，既不前进也不无限循环。
+     *
+     * @return `节点 path → 层级`；没有可用的前置关系时返回空 map（调用方回落到大纲顺序）
+     */
+    internal fun dependencyRanks(graph: MergedGraph): Map<String, Int> {
+        val nodeOfCard = HashMap<String, String>()
+        graph.cards.forEach { nodeOfCard[it.id] = it.outlinePath }
+
+        val outgoing = HashMap<String, MutableSet<String>>()
+        val indegree = HashMap<String, Int>()
+
+        graph.cards.forEach { card ->
+            card.prerequisites.forEach { link ->
+                val from = nodeOfCard[link.from]
+                val to = nodeOfCard[link.to]
+                if (from == null || to == null || from == to) return@forEach
+                if (outgoing.getOrPut(from) { LinkedHashSet() }.add(to)) {
+                    indegree[to] = (indegree[to] ?: 0) + 1
+                    indegree.getOrPut(from) { 0 }
+                }
+            }
+        }
+        if (outgoing.isEmpty()) return emptyMap()
+
+        // 所有出现过的节点先给 0：**只在被指向时才赋值**会让入度为 0 的源节点没有层级，
+        // 后面就会被「成环兜底」误判成孤儿、反而压到最底层。
+        val rank = HashMap<String, Int>()
+        indegree.keys.forEach { rank[it] = 0 }
+
+        val processed = HashSet<String>()
+        val queue = ArrayDeque<String>()
+        indegree.filterValues { it == 0 }.keys.sorted().forEach { queue.addLast(it) }
+
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            processed += current
+            val currentRank = rank[current] ?: 0
+            outgoing[current].orEmpty().sorted().forEach { next ->
+                rank[next] = maxOf(rank[next] ?: 0, currentRank + 1)
+                val remaining = (indegree[next] ?: 1) - 1
+                indegree[next] = remaining
+                if (remaining == 0) queue.addLast(next)
+            }
+        }
+
+        // 真正没进过队列的（环里的节点）压到最底层，避免它们没有行号
+        val orphans = indegree.keys.filterNot { it in processed }
+        if (orphans.isNotEmpty()) {
+            val fallback = (rank.values.maxOrNull() ?: 0) + 1
+            orphans.forEach { rank[it] = fallback }
+        }
+        return rank
     }
 
     /**
