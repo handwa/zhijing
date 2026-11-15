@@ -215,6 +215,30 @@ class ConditionProbeRepositoryTest {
     }
 
     @Test
+    fun `批量取多条命题的记录按命题分组`() = runBlocking {
+        repo.record(triple, intX, claimA, "HOLDS", "FAILS", null, now = 1_000L)
+        repo.record(otherTriple, "int.axis.0-to-1", claimB, "HOLDS", "HOLDS", null, now = 2_000L)
+
+        val grouped = repo.statesForClaims(listOf(claimA, claimB))
+        assertEquals(setOf(claimA, claimB), grouped.keys)
+        assertEquals(1, grouped.getValue(claimA).size)
+        // 没作答的命题不出现在结果里：调用方按「有没有记录」决定要不要显示事实
+        assertNull(grouped["clm.没答过"])
+        assertTrue(repo.statesForClaims(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `重复作答保留上一次的猜测`() = runBlocking {
+        repo.record(triple, intX, claimA, "WEAKENED", "FAILS", null, now = 1_000L)
+        val second = repo.record(triple, intX, claimA, "FAILS", "FAILS", null, now = 2_000L)
+
+        // 理解路径要讲「原来猜 X，现在改成 Y」，所以上一格必须留着
+        assertEquals("WEAKENED", second.previousPredictedOption)
+        assertEquals("FAILS", second.predictedOption)
+        assertTrue(second.matched)
+    }
+
+    @Test
     fun `清空只影响本表`() = runBlocking {
         repo.record(triple, intX, claimA, "HOLDS", "FAILS", null, now = 1_000L)
 

@@ -177,6 +177,9 @@ data class ConditionProbeState(
     /** 用户最近一次的选择（`Outcome` 的 name）。 */
     val predictedOption: String,
 
+    /** 上一次的选择；首次作答为 null。用来讲「原来猜 X，现在改成 Y」。 */
+    val previousPredictedOption: String? = null,
+
     /** 最近一次的真实后果（本地求值或预置答案）。 */
     val correctOption: String,
 

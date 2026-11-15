@@ -98,7 +98,15 @@ data class GraphCard(
      */
     val badgeStatus: ProbeStatus? = null,
     /** 前置关系：本卡**依赖**的卡片（`to` 指向本卡）。 */
-    val prerequisites: List<PrerequisiteLink> = emptyList()
+    val prerequisites: List<PrerequisiteLink> = emptyList(),
+
+    /**
+     * 条件级事实（回写广度）。
+     *
+     * 卡片上显示的是「在这里错过几次、错在哪条机制」，**不是掌握度百分比**：
+     * 百分比既不驱动行动，也容易把「只答过一次」说成「80% 掌握」。
+     */
+    val conditionFacts: List<ConditionFact> = emptyList()
 ) {
     /** 是否可下钻：只有挂了命题的叶子卡才有下钻入口。 */
     val descendable: Boolean get() = claims.isNotEmpty()
@@ -106,6 +114,53 @@ data class GraphCard(
     /** 易错点注记（回写价值最高的部分）。 */
     val misconceptionNotes: List<String>
         get() = claims.flatMap { it.probe.misconceptions }.distinct()
+}
+
+/**
+ * 一条「在这里错过」的事实。
+ *
+ * 由 `kg_condition_probe` 派生，**不存进图谱数据**：状态是运行时数据，
+ * 图谱是出版物；两者混在一起就又会回到「广度侧存状态」的老问题。
+ */
+data class ConditionFact(
+    val claimId: String,
+    val interventionId: String,
+    /** 干预动作，如「把输入最后一维从 4 改成 5」。 */
+    val action: String,
+    /** 这条干预所属的条件，如「输入最后一维必须等于权重输入维度」。 */
+    val statement: String,
+    /** 错过的累计次数。 */
+    val wrongCount: Int,
+    /** 最近一次留下的误解摘要。 */
+    val misconception: String? = null,
+)
+
+/**
+ * 理解路径的一步：**提问 → 预测 → 揭示**（对上了就是「改念」）。
+ *
+ * 第一版刻意只做一条线：一个干预点只留最近一次预测，不做分支树。
+ * 数据来自 `kg_condition_probe`（每点一行，重复作答覆盖 + 计数）。
+ */
+data class ConditionPathStep(
+    val interventionId: String,
+    /** 题目正文（干预动作）。 */
+    val action: String,
+    /** 题目所属条件。 */
+    val statement: String,
+    /** 用户最近一次的选择（中文标签）。 */
+    val predicted: String,
+    /** 上一次的选择；首次作答为 null。 */
+    val previousPredicted: String? = null,
+    /** 实际后果（本地求值或预置答案）。 */
+    val actual: String,
+    /** 最近一次是否对上。 */
+    val matched: Boolean,
+    val attempts: Int,
+    /** 历史上错过的次数；>0 且 [matched] 为 true 才是真正的「改念」。 */
+    val wrongAttempts: Int,
+) {
+    /** 是否已经改过来了：错过、但最近一次答对。 */
+    val revised: Boolean get() = wrongAttempts > 0 && matched
 }
 
 /** 交叉链接。 */
@@ -138,7 +193,13 @@ data class GraphClaim(
     val probe: ClaimProbeState,
     val source: ClaimSource,
     /** 是否来自 assets（出厂命题）。`false` 表示运行时增量，可被用户删除。 */
-    val bundled: Boolean
+    val bundled: Boolean,
+    /**
+     * 理解路径（第一版，单线）：按最近作答倒序的「预测 → 揭示」。
+     *
+     * 只包含可拨条件（`triples` 里有的干预点）；云端增量命题没有三元组，恒为空。
+     */
+    val conditionPath: List<ConditionPathStep> = emptyList()
 )
 
 /** 一条边（供深度视图展示「依赖与影响」）。 */

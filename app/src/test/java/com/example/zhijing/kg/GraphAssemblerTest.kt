@@ -61,6 +61,9 @@ class GraphAssemblerTest {
         // 否则「大纲树按父子关系重建」这类假设只有出厂图谱的用例会被泄漏数据破坏
         runBlocking {
             data.kgClaims.deleteAll(); data.kgStates.deleteAll()
+            // 条件级记录同样会跨用例泄漏：「错过几次」是累加的，
+            // 漏清会让后一个用例读到前一个用例的作答次数。
+            data.kgConditionProbes.deleteAll()
             data.kgGenerated.listGraphs().forEach { data.kgGenerated.deleteGraph(it.topicId) }
         }
         assembler = GraphAssembler(context, data)
@@ -72,6 +75,7 @@ class GraphAssemblerTest {
     fun tearDown() {
         runBlocking {
             data.kgClaims.deleteAll(); data.kgStates.deleteAll()
+            data.kgConditionProbes.deleteAll()
             data.kgGenerated.listGraphs().forEach { data.kgGenerated.deleteGraph(it.topicId) }
         }
     }
@@ -310,6 +314,116 @@ class GraphAssemblerTest {
         assertEquals("1.1 Linear 层", assembler.cardTitleOf("crd.s1-1-linear"))
         // 云端新建的卡片不在出厂图谱里，返回 null 让 UI 退化显示路径
         assertNull(assembler.cardTitleOf("crd.content.42"))
+    }
+
+    /* --------------------------------------------------- 条件级回写 */
+
+    @Test
+    fun `没有条件级记录时卡片不显示事实`() = runBlocking {
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val card = merged.cards.first { it.id == "crd.s1-1-linear" }
+
+        // 一次都没拨过条件时，卡片保持干净：不要出现「错过 0 次」这种噪音
+        assertTrue(card.conditionFacts.isEmpty())
+        assertTrue(merged.claims.getValue("clm.arch.ffn.linear-in-dim.4a3e").conditionPath.isEmpty())
+    }
+
+    @Test
+    fun `答错后卡片显示错过几次与哪条机制`() = runBlocking {
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-in-x.4-to-5",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "HOLDS",
+            correctOption = "FAILS",
+            misconception = "以为维度不等只是让结果变宽",
+            now = 1_000L
+        )
+
+        val card = assembler.load(includeRuntimeClaims = false)
+            .cards.first { it.id == "crd.s1-1-linear" }
+        val fact = card.conditionFacts.single()
+
+        assertEquals(1, fact.wrongCount)
+        assertTrue("事实要能说清拨的是哪一根轴：${fact.action}", fact.action.contains("最后一维"))
+        assertTrue("事实要带上条件：${fact.statement}", fact.statement.contains("最后一维必须等于"))
+        assertEquals("以为维度不等只是让结果变宽", fact.misconception)
+    }
+
+    @Test
+    fun `答对之后卡片仍记得错过过`() = runBlocking {
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-in-x.4-to-5",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "HOLDS",
+            correctOption = "FAILS",
+            now = 1_000L
+        )
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-in-x.4-to-5",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "FAILS",
+            correctOption = "FAILS",
+            now = 2_000L
+        )
+
+        val card = assembler.load(includeRuntimeClaims = false)
+            .cards.first { it.id == "crd.s1-1-linear" }
+
+        // 「在这里错过几次」是历史事实，答对不清零
+        assertEquals(1, card.conditionFacts.single().wrongCount)
+    }
+
+    @Test
+    fun `理解路径给出原来猜什么现在改成了什么`() = runBlocking {
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-in-x.4-to-5",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "WEAKENED",
+            correctOption = "FAILS",
+            now = 1_000L
+        )
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-in-x.4-to-5",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "FAILS",
+            correctOption = "FAILS",
+            now = 2_000L
+        )
+
+        val step = assembler.load(includeRuntimeClaims = false)
+            .claims.getValue("clm.arch.ffn.linear-in-dim.4a3e")
+            .conditionPath.single()
+
+        assertEquals("只是适用范围变窄", step.previousPredicted)
+        assertEquals("不再成立", step.predicted)
+        assertEquals("不再成立", step.actual)
+        assertEquals(2, step.attempts)
+        assertTrue("错过之后改对了，才叫「改念」", step.revised)
+        assertTrue(step.action.contains("最后一维"))
+    }
+
+    @Test
+    fun `理解路径只包含有记录的干预点`() = runBlocking {
+        data.kgConditionProbes.record(
+            tripleId = "tri.linear-in-dim.1",
+            interventionId = "inv.linear-batch.8-to-160",
+            claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+            predictedOption = "HOLDS",
+            correctOption = "HOLDS",
+            now = 1_000L
+        )
+
+        val path = assembler.load(includeRuntimeClaims = false)
+            .claims.getValue("clm.arch.ffn.linear-in-dim.4a3e")
+            .conditionPath
+
+        assertEquals("inv.linear-batch.8-to-160", path.single().interventionId)
+        assertFalse(path.single().revised)
     }
 
     /* --------------------------------------------------- 生成图谱合并 */

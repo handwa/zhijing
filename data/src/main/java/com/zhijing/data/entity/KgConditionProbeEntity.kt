@@ -48,6 +48,15 @@ internal data class KgConditionProbeEntity(
     @ColumnInfo(name = "predicted_option")
     val predictedOption: String,
 
+    /**
+     * 上一次的选择，用来讲「你原来猜 X，现在改成 Y」。
+     *
+     * 只留一格而不是逐次日志：理解路径第一版做的是**一条线**，
+     * 要的是「改念前后」这个对比，不是完整作答历史。
+     */
+    @ColumnInfo(name = "previous_predicted_option")
+    val previousPredictedOption: String? = null,
+
     /** 最近一次的真实后果（由本地求值器或预置答案给出）。 */
     @ColumnInfo(name = "correct_option")
     val correctOption: String,

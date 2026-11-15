@@ -2,9 +2,12 @@ package com.example.zhijing.kg
 
 import android.content.Context
 import com.example.zhijing.kg.depth.ConditionTriple
+import com.example.zhijing.kg.depth.Intervention
+import com.example.zhijing.kg.depth.Outcome
 import com.example.zhijing.kg.depth.TripleParser
 import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.ClaimProbeState
+import com.zhijing.data.model.ConditionProbeState
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.GeneratedCard
 import com.zhijing.data.model.GeneratedGraph
@@ -174,6 +177,54 @@ class GraphAssembler(
         states: Map<String, ClaimProbeState>,
         generated: List<GeneratedGraph> = emptyList()
     ): MergedGraph {
+        // 0) 条件级事实：一次批量取出「每个干预点错过几次、最近猜了什么」。
+        //    广度侧不存状态，渲染时现算；只查出厂命题 —— 增量命题没有三元组。
+        val bundledIds = bundled.claims.map { it.id }
+        val probeRows: Map<String, List<ConditionProbeState>> =
+            data.kgConditionProbes.statesForClaims(bundledIds)
+        val interventionIndex: Map<String, Pair<ConditionTriple, Intervention>> =
+            bundled.triples.flatMap { triple ->
+                triple.interventions.map { intervention -> intervention.id to (triple to intervention) }
+            }.toMap()
+
+        /** 一张卡/一条命题下的「错过」事实，按错过次数降序。 */
+        fun factsOf(claimIds: Collection<String>): List<ConditionFact> = claimIds
+            .flatMap { claimId ->
+                probeRows[claimId].orEmpty()
+                    .filter { it.wrongAttempts > 0 }
+                    .mapNotNull { row ->
+                        val hit = interventionIndex[row.interventionId] ?: return@mapNotNull null
+                        ConditionFact(
+                            claimId = claimId,
+                            interventionId = row.interventionId,
+                            action = hit.second.action,
+                            statement = hit.first.statement,
+                            wrongCount = row.wrongAttempts,
+                            misconception = row.misconception
+                        )
+                    }
+            }
+            .sortedByDescending { it.wrongCount }
+
+        /** 一条命题的理解路径：最近作答的排前面。 */
+        fun pathOf(claimId: String): List<ConditionPathStep> = probeRows[claimId].orEmpty()
+            .sortedByDescending { it.lastProbedAt ?: 0L }
+            .mapNotNull { row ->
+                val hit = interventionIndex[row.interventionId] ?: return@mapNotNull null
+                ConditionPathStep(
+                    interventionId = row.interventionId,
+                    action = hit.second.action,
+                    statement = hit.first.statement,
+                    predicted = Outcome.fromWire(row.predictedOption)?.label ?: row.predictedOption,
+                    previousPredicted = row.previousPredictedOption
+                        ?.let { Outcome.fromWire(it)?.label ?: it },
+                    actual = Outcome.fromWire(row.correctOption)?.label ?: row.correctOption,
+                    matched = row.matched,
+                    attempts = row.attempts,
+                    wrongAttempts = row.wrongAttempts
+                )
+            }
+
         // 1) 出厂命题：状态按 ID 派生
         val claims = LinkedHashMap<String, GraphClaim>()
         bundled.claims.forEach { raw ->
@@ -181,7 +232,7 @@ class GraphAssembler(
                 probe = states[raw.id] ?: ClaimProbeState(claimId = raw.id),
                 source = ClaimSource.BUNDLED,
                 bundled = true
-            )
+            ).copy(conditionPath = pathOf(raw.id))
         }
 
         // 2) 已确认的增量命题：追加到对应卡片。
@@ -228,7 +279,8 @@ class GraphAssembler(
                 crossLinks = raw.crossLinks,
                 claims = cardClaims,
                 badgeStatus = MergedGraph.badgeOf(cardClaims.map { c -> c.probe.probeStatus }),
-                prerequisites = prereqByCard[raw.id].orEmpty()
+                prerequisites = prereqByCard[raw.id].orEmpty(),
+                conditionFacts = factsOf(cardClaims.map { it.id })
             )
         }
 

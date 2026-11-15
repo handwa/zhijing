@@ -78,14 +78,25 @@ import com.zhijing.data.model.ProbeStatus
  * 2. **角标由卡内命题状态聚合派生**，不单独存储；
  * 3. **深度不是并列入口**：这里没有任何进判断面板的全局按钮。
  */
+/**
+ * `internal` 而不是 `public`：`onProbeAnswer` 的参数类型 [ConditionProbeSession.Answer]
+ * 是深度侧的内部类型。要对外暴露就得再包一层 DTO，而图谱页本来就只在 :app 内使用。
+ */
 @Composable
-fun GraphScreen(
+internal fun GraphScreen(
     graph: MergedGraph?,
     loading: Boolean,
     onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit = {},
     onGenerateNew: () -> Unit = {},
+    /**
+     * 一次「预测 → 揭示」的作答。
+     *
+     * 只写**条件级**记录（`kg_condition_probe`），不写命题级状态：
+     * 命题级的收敛由下面的判断题面板负责，同一道题记两次会让置信度提前到顶。
+     */
+    onProbeAnswer: (ConditionProbeSession.Answer) -> Unit = {},
 ) {
     var selectedOutline by remember { mutableStateOf<String?>(null) }
     var descendCardId by remember { mutableStateOf<String?>(null) }
@@ -235,15 +246,7 @@ fun GraphScreen(
         onIndexChange = { claimIndex = it },
         onClose = { descendCardId = null },
         onJudge = onJudge,
-        onProbeAnswer = { answer ->
-            // 阶段 3 接入 kg_condition_probe；先落日志，避免作答被静默丢弃
-            android.util.Log.i(
-                "GraphScreen",
-                "probe ${answer.question.interventionId}: " +
-                    "predicted=${answer.predicted} actual=${answer.actual.outcome} " +
-                    "matched=${answer.matched}",
-            )
-        },
+        onProbeAnswer = onProbeAnswer,
     )
 
     // ---- 节点搜索 ----

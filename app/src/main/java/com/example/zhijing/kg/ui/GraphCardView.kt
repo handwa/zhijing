@@ -124,9 +124,48 @@ fun GraphCardView(
                     )
                 }
 
-                // 易错点注记：只在有易错时出现（让卡片「变厚」）
+                // 条件级事实：这条卡下设的干预点上，用户**实际**错过几次。
+                // 刻意不用百分比：百分比不驱动行动，还会把「只答过一次」说成「80% 掌握」。
+                val facts = card.conditionFacts
+                if (facts.isNotEmpty()) {
+                    val confused = StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED)
+                    Spacer(Modifier.height(ZjSpace.sm))
+                    facts.take(2).forEach { fact ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = confused,
+                                shape = RoundedCornerShape(2.dp),
+                                modifier = Modifier.size(width = 3.dp, height = 14.dp),
+                            ) {}
+                            Spacer(Modifier.width(ZjSpace.sm))
+                            Text(
+                                text = "在「${fact.action}」上错过 ${fact.wrongCount} 次",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = confused,
+                            )
+                        }
+                        if (!fact.misconception.isNullOrBlank()) {
+                            Text(
+                                text = "　${fact.misconception}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (facts.size > 2) {
+                        Text(
+                            text = "　还有 ${facts.size - 2} 条条件曾经错过",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // 易错点注记：只在有易错、且还没有更具体的条件事实时出现
                 val notes = card.misconceptionNotes
-                if (notes.isNotEmpty()) {
+                if (notes.isNotEmpty() && facts.isEmpty()) {
                     Spacer(Modifier.height(ZjSpace.sm))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
@@ -351,6 +390,45 @@ private fun RevealSection(claim: GraphClaim, judgedCorrect: Boolean) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+
+    // 理解路径（第一版，单线）：提问 → 预测 → 揭示。
+    // 重点是「你原来猜 X，实际是 Y」这个对比 —— 它比「答错了」多给一个可修正的模型。
+    if (claim.conditionPath.isNotEmpty()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("你的理解路径")
+        claim.conditionPath.take(3).forEach { step ->
+            Text(
+                text = "提问：${step.action}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            val prediction = if (step.previousPredicted != null) {
+                "你原来猜「${step.previousPredicted}」，现在猜「${step.predicted}」"
+            } else {
+                "你猜「${step.predicted}」"
+            }
+            Text(
+                text = "$prediction，实际「${step.actual}」" + when {
+                    step.revised -> " —— 已经改过来"
+                    step.matched -> ""
+                    else -> " —— 还没改过来"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (step.matched) {
+                    StatusVisual.color(com.zhijing.data.model.ProbeStatus.MASTERED)
+                } else {
+                    StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED)
+                },
+            )
+            Spacer(Modifier.height(ZjSpace.xs))
+        }
+        if (claim.conditionPath.size > 3) {
+            Text(
+                text = "…… 还有 ${claim.conditionPath.size - 3} 次拨动",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

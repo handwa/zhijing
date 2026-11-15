@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.map
  * - [KgStateRepository] 记「这条命题掌握没有」，驱动角标、复习队列；
  * - 本仓库记「哪个干预点上把边界想错了」，驱动卡片上的具体事实。
  *
- * 一次「预测 → 揭示」应当两边都写：命题粒度负责收敛，条件粒度负责解释。
+ * **不要在同一次「预测 → 揭示」里两边都写**：题是做两遍（条件题 + 判断题），
+ * 各写各的就是两次 attempts；把条件题的结果再抄进命题状态，会让置信度与收敛
+ * 提前到达，状态显示「已掌握」而用户其实只答了一遍。
  *
  * ## 回写是派生
  *
@@ -37,6 +39,14 @@ interface ConditionProbeRepository {
 
     /** 一条命题下所有条件的记录。 */
     suspend fun statesForClaim(claimId: String): List<ConditionProbeState>
+
+    /**
+     * 批量取多条命题下的记录，按 `claimId` 分组。
+     *
+     * 图谱合并加载要一次拿全（24 张卡逐卡查会变成 24 次 IO），
+     * 返回的 Map 只包含**有记录**的命题；没作答的命题不在里面。
+     */
+    suspend fun statesForClaims(claimIds: List<String>): Map<String, List<ConditionProbeState>>
 
     /**
      * 记录一次作答并返回累加后的记录。
@@ -96,6 +106,15 @@ internal class DefaultConditionProbeRepository(
     override suspend fun statesForClaim(claimId: String): List<ConditionProbeState> =
         if (claimId.isBlank()) emptyList() else dao.findByClaim(claimId).map { it.toDomain() }
 
+    override suspend fun statesForClaims(
+        claimIds: List<String>
+    ): Map<String, List<ConditionProbeState>> {
+        if (claimIds.isEmpty()) return emptyMap()
+        return dao.findByClaimIds(claimIds)
+            .map { it.toDomain() }
+            .groupBy { it.claimId }
+    }
+
     override suspend fun record(
         tripleId: String,
         interventionId: String,
@@ -116,6 +135,8 @@ internal class DefaultConditionProbeRepository(
             interventionId = interventionId,
             claimId = claimId,
             predictedOption = predictedOption,
+            // 只留上一格：「原来猜 X，现在改成 Y」需要的是前后对比，不是完整历史
+            previousPredictedOption = prev?.predictedOption,
             correctOption = correctOption,
             matched = matched,
             attempts = (prev?.attempts ?: 0) + 1,

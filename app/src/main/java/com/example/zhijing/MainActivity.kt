@@ -620,6 +620,22 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         genMessage = null
                         screen = AppScreen.GRAPH_GENERATE
                     },
+                    onProbeAnswer = { answer ->
+                        scope.launch {
+                            // 条件级记录：只记「哪个干预点错了、猜的是什么」。
+                            // 不写命题级状态 —— 下面的判断题面板会写，两处都写就重复计数。
+                            data.kgConditionProbes.record(
+                                tripleId = answer.question.tripleId,
+                                interventionId = answer.question.interventionId,
+                                claimId = answer.question.claimId,
+                                predictedOption = answer.predicted.name,
+                                correctOption = answer.actual.outcome.name,
+                                misconception = answer.misconception?.correction,
+                            )
+                            // 卡片上的「在这里错过几次」与理解路径都走派生，重取即可更新
+                            mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
+                        }
+                    },
                 )
             }
 
