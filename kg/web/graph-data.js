@@ -5,16 +5,17 @@ window.KG = {
   "schemaVersion": "1.0",
   "source": "kg/data/source/transformer-arch.md",
   "generator": "kg/src/build_graph.py",
-  "generatedAt": "2026-11-03T16:37:17+08:00",
+  "generatedAt": "2026-11-15T13:35:37+08:00",
   "counts": {
    "outline": 24,
    "card": 22,
-   "claim": 35,
+   "claim": 36,
    "entity": 44,
    "edge": 16
   },
   "warnings": [
-   "命题重复：clm.arch.qa.q1.a702 与 clm.arch.ffn.relu-differentiable.a702 断言相同，已并入 clm.arch.ffn.relu-differentiable.a702"
+   "命题重复：clm.arch.qa.q1.a702 与 clm.arch.ffn.relu-differentiable.a702 断言相同，已并入 clm.arch.ffn.relu-differentiable.a702",
+   "新增命题 ID 1 条：clm.arch.s5.boundary.92a4"
   ]
  },
  "enums": {
@@ -1101,7 +1102,9 @@ window.KG = {
    "body": "下面这张表是判断题形式的速查清单，用于快速自测。第三条「边界」说明什么情况下结论会翻转 —— 这一列就是深度图谱里「条件」的来源。",
    "chain": [],
    "crossLinks": [],
-   "claimIds": []
+   "claimIds": [
+    "clm.arch.s5.boundary.92a4"
+   ]
   },
   {
    "id": "crd.s5-1",
@@ -2498,6 +2501,47 @@ window.KG = {
        {
         "kind": "semantic",
         "why": "以为「注意力看得到所有 token」就等于「知道顺序」。"
+       }
+      ],
+      "misconception": ""
+     }
+    },
+    "probeState": {
+     "probe_status": "unprobed",
+     "last_probed_at": null,
+     "misconceptions": [],
+     "confidence": 0.0,
+     "attempts": 0,
+     "correct": 0
+    }
+   }
+  },
+  {
+   "id": "clm.arch.s5.boundary.92a4",
+   "type": "claim",
+   "statement": "速查表里的判断句只在写明的边界内成立，脱离边界直接套用会判错。",
+   "conditions": [
+    "每条判断句都附一条边界说明：什么情况下结论翻转",
+    "把「成立」当成无条件成立，等于丢掉了这一列"
+   ],
+   "evidence": "第三条「边界」说明什么情况下结论会翻转 —— 这一列就是深度图谱里「条件」的来源。",
+   "breadth": {
+    "outlinePath": "s5",
+    "cardId": "crd.s5",
+    "cardSummary": "下面这张表是判断题形式的速查清单，用于快速自测。",
+    "leafContent": "下面这张表是判断题形式的速查清单，用于快速自测。"
+   },
+   "depth": {
+    "edges": [],
+    "judgementPanel": {
+     "question": "这个说法成立吗？",
+     "expected": true,
+     "reveal": {
+      "explanation": "成立。速查表把每条判断句与它的边界并列写出来，就是为了说明「成立」是有前提的：BatchNorm 那条要求显式切到 eval，交叉熵那条要求损失内部做了 log-softmax，前提一变结论就翻转。",
+      "errorKinds": [
+       {
+        "kind": "semantic",
+        "why": "把「结论成立」直接当成「无条件成立」，边界那一列被当成了注解而不是条件。"
        }
       ],
       "misconception": ""
@@ -4048,7 +4092,7 @@ window.KG = {
        "title": "5 常见误区速查",
        "kind": "card",
        "id": "crd.s5",
-       "claimCount": 0
+       "claimCount": 1
       },
       {
        "title": "5.1 判断题表",
@@ -4065,7 +4109,7 @@ window.KG = {
        "claimCount": 5
       }
      ],
-     "claimCount": 0
+     "claimCount": 1
     },
     {
      "title": "6 小结",
@@ -4193,6 +4237,13 @@ window.KG = {
     "total": 2
    },
    "crd.s4-4": {
+    "unprobed": 1,
+    "verified": 0,
+    "mastered": 0,
+    "confused": 0,
+    "total": 1
+   },
+   "crd.s5": {
     "unprobed": 1,
     "verified": 0,
     "mastered": 0,

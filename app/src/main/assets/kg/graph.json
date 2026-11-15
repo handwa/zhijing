@@ -3,16 +3,17 @@
     "schemaVersion": "1.0",
     "source": "kg/data/source/transformer-arch.md",
     "generator": "kg/src/build_graph.py",
-    "generatedAt": "2026-11-03T16:37:17+08:00",
+    "generatedAt": "2026-11-15T13:35:37+08:00",
     "counts": {
       "outline": 24,
       "card": 22,
-      "claim": 35,
+      "claim": 36,
       "entity": 44,
       "edge": 16
     },
     "warnings": [
-      "命题重复：clm.arch.qa.q1.a702 与 clm.arch.ffn.relu-differentiable.a702 断言相同，已并入 clm.arch.ffn.relu-differentiable.a702"
+      "命题重复：clm.arch.qa.q1.a702 与 clm.arch.ffn.relu-differentiable.a702 断言相同，已并入 clm.arch.ffn.relu-differentiable.a702",
+      "新增命题 ID 1 条：clm.arch.s5.boundary.92a4"
     ]
   },
   "outline": [
@@ -1062,7 +1063,9 @@
       "body": "下面这张表是判断题形式的速查清单，用于快速自测。第三条「边界」说明什么情况下结论会翻转 —— 这一列就是深度图谱里「条件」的来源。",
       "chain": [],
       "crossLinks": [],
-      "claimIds": []
+      "claimIds": [
+        "clm.arch.s5.boundary.92a4"
+      ]
     },
     {
       "id": "crd.s5-1",
@@ -2459,6 +2462,47 @@
               {
                 "kind": "semantic",
                 "why": "以为「注意力看得到所有 token」就等于「知道顺序」。"
+              }
+            ],
+            "misconception": ""
+          }
+        },
+        "probeState": {
+          "probe_status": "unprobed",
+          "last_probed_at": null,
+          "misconceptions": [],
+          "confidence": 0.0,
+          "attempts": 0,
+          "correct": 0
+        }
+      }
+    },
+    {
+      "id": "clm.arch.s5.boundary.92a4",
+      "type": "claim",
+      "statement": "速查表里的判断句只在写明的边界内成立，脱离边界直接套用会判错。",
+      "conditions": [
+        "每条判断句都附一条边界说明：什么情况下结论翻转",
+        "把「成立」当成无条件成立，等于丢掉了这一列"
+      ],
+      "evidence": "第三条「边界」说明什么情况下结论会翻转 —— 这一列就是深度图谱里「条件」的来源。",
+      "breadth": {
+        "outlinePath": "s5",
+        "cardId": "crd.s5",
+        "cardSummary": "下面这张表是判断题形式的速查清单，用于快速自测。",
+        "leafContent": "下面这张表是判断题形式的速查清单，用于快速自测。"
+      },
+      "depth": {
+        "edges": [],
+        "judgementPanel": {
+          "question": "这个说法成立吗？",
+          "expected": true,
+          "reveal": {
+            "explanation": "成立。速查表把每条判断句与它的边界并列写出来，就是为了说明「成立」是有前提的：BatchNorm 那条要求显式切到 eval，交叉熵那条要求损失内部做了 log-softmax，前提一变结论就翻转。",
+            "errorKinds": [
+              {
+                "kind": "semantic",
+                "why": "把「结论成立」直接当成「无条件成立」，边界那一列被当成了注解而不是条件。"
               }
             ],
             "misconception": ""
@@ -4009,7 +4053,7 @@
               "title": "5 常见误区速查",
               "kind": "card",
               "id": "crd.s5",
-              "claimCount": 0
+              "claimCount": 1
             },
             {
               "title": "5.1 判断题表",
@@ -4026,7 +4070,7 @@
               "claimCount": 5
             }
           ],
-          "claimCount": 0
+          "claimCount": 1
         },
         {
           "title": "6 小结",
@@ -4051,133 +4095,155 @@
       "from": "crd.s1-1-linear",
       "to": "crd.s1-2-relu",
       "kind": "required",
-      "reason": "ReLU 作用在 Linear 的输出上"
+      "reason": "ReLU 作用在 Linear 的输出上",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-1-linear",
       "to": "crd.s1-3-softmax",
       "kind": "required",
-      "reason": "Softmax 的输入是线性层的 logits"
+      "reason": "Softmax 的输入是线性层的 logits",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-3-softmax",
       "to": "crd.s1-4",
       "kind": "required",
-      "reason": "交叉熵内部做 log-softmax"
+      "reason": "交叉熵内部做 log-softmax",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-1-linear",
       "to": "crd.s2-1",
       "kind": "required",
-      "reason": "形状依赖用矩阵乘举例"
+      "reason": "形状依赖用矩阵乘举例",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-3-softmax",
       "to": "crd.s2-2",
       "kind": "required",
-      "reason": "值域依赖以 Softmax 输出为例"
+      "reason": "值域依赖以 Softmax 输出为例",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-3-softmax",
       "to": "crd.s2-3",
       "kind": "required",
-      "reason": "统计量依赖讲的就是 Softmax 输出的归一化性质（沿类别维求和为 1）"
+      "reason": "统计量依赖讲的就是 Softmax 输出的归一化性质（沿类别维求和为 1）",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-2-relu",
       "to": "crd.s2-4",
       "kind": "required",
-      "reason": "梯度路径依赖以 ReLU 死区为例"
+      "reason": "梯度路径依赖以 ReLU 死区为例",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-2-relu",
       "to": "crd.s2-5",
       "kind": "recommended",
-      "reason": "语义依赖的典型反例来自 ReLU"
+      "reason": "语义依赖的典型反例来自 ReLU",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s2-1",
       "to": "crd.s2-5",
       "kind": "recommended",
-      "reason": "先理解形状依赖，才能对比语义依赖"
+      "reason": "先理解形状依赖，才能对比语义依赖",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-1-linear",
       "to": "crd.s3-1-layernorm-batchnorm",
       "kind": "required",
-      "reason": "归一化作用在层输出上"
+      "reason": "归一化作用在层输出上",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s2-3",
       "to": "crd.s3-1-layernorm-batchnorm",
       "kind": "required",
-      "reason": "LN/BN 的差别就是统计量维度"
+      "reason": "LN/BN 的差别就是统计量维度",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s3-1-layernorm-batchnorm",
       "to": "crd.s3-3-pre-ln-post-ln",
       "kind": "required",
-      "reason": "Pre/Post-LN 以 LN 位置区分"
+      "reason": "Pre/Post-LN 以 LN 位置区分",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s2-1",
       "to": "crd.s3-2",
       "kind": "required",
-      "reason": "残差相加要求主分支与捷径同形状"
+      "reason": "残差相加要求主分支与捷径同形状",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s2-4",
       "to": "crd.s3-2",
       "kind": "recommended",
-      "reason": "残差的意义在于提供梯度通路"
+      "reason": "残差的意义在于提供梯度通路",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s3-2",
       "to": "crd.s3-3-pre-ln-post-ln",
       "kind": "required",
-      "reason": "Pre/Post-LN 讨论的是归一化相对残差的位置"
+      "reason": "Pre/Post-LN 讨论的是归一化相对残差的位置",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-3-softmax",
       "to": "crd.s4-1",
       "kind": "required",
-      "reason": "缩放点积注意力用 Softmax 归一化得分"
+      "reason": "缩放点积注意力用 Softmax 归一化得分",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-1-linear",
       "to": "crd.s4-1",
       "kind": "required",
-      "reason": "注意力的 Q/K/V 都是线性投影"
+      "reason": "注意力的 Q/K/V 都是线性投影",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s4-1",
       "to": "crd.s4-2",
       "kind": "required",
-      "reason": "掩码作用在注意力得分上"
+      "reason": "掩码作用在注意力得分上",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s1-3-softmax",
       "to": "crd.s4-2",
       "kind": "recommended",
-      "reason": "掩码必须在 Softmax 之前生效"
+      "reason": "掩码必须在 Softmax 之前生效",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s4-1",
       "to": "crd.s4-3",
       "kind": "required",
-      "reason": "多头注意力是缩放点积注意力的并行版"
+      "reason": "多头注意力是缩放点积注意力的并行版",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s2-1",
       "to": "crd.s4-3",
       "kind": "recommended",
-      "reason": "多头拼接依赖形状对齐"
+      "reason": "多头拼接依赖形状对齐",
+      "source": "AUTHORED_HUMAN"
     },
     {
       "from": "crd.s4-1",
       "to": "crd.s4-4",
       "kind": "recommended",
-      "reason": "位置编码常与注意力一起理解"
+      "reason": "位置编码常与注意力一起理解",
+      "source": "AUTHORED_HUMAN"
     }
   ],
   "triples": [
@@ -4205,8 +4271,14 @@
             },
             "op": {
               "kind": "matmul",
-              "lhs": ["N", "in_x"],
-              "rhs": ["out_w", "in_w"],
+              "lhs": [
+                "N",
+                "in_x"
+              ],
+              "rhs": [
+                "out_w",
+                "in_w"
+              ],
               "rhsTransposed": true
             },
             "constraints": [
@@ -4243,8 +4315,14 @@
             },
             "op": {
               "kind": "matmul",
-              "lhs": ["N", "in_x"],
-              "rhs": ["out_w", "in_w"],
+              "lhs": [
+                "N",
+                "in_x"
+              ],
+              "rhs": [
+                "out_w",
+                "in_w"
+              ],
               "rhsTransposed": true
             },
             "constraints": [
@@ -4287,7 +4365,10 @@
             },
             "op": {
               "kind": "softmaxSum",
-              "input": ["N", "C"],
+              "input": [
+                "N",
+                "C"
+              ],
               "softmaxAxis": 1,
               "sumAxis": 1
             },
@@ -4313,7 +4394,10 @@
             },
             "op": {
               "kind": "softmaxSum",
-              "input": ["N", "C"],
+              "input": [
+                "N",
+                "C"
+              ],
               "softmaxAxis": 1,
               "sumAxis": 0
             },
@@ -4326,6 +4410,566 @@
               "predicted": "HOLDS",
               "why": "以为输出是概率分布，所以怎么求和都是 1",
               "correction": "归一化只发生在 softmax 的那一根轴上；换一根轴求和，相当于把不同样本的概率加在一起"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.softmax-dim.1",
+      "claimId": "clm.arch.ffn.softmax-dim.4af1",
+      "cardId": "crd.s1-3-softmax",
+      "statement": "Softmax 归一化的是类别维，不是 batch 维",
+      "kind": "statistics",
+      "mechanism": "softmax 沿指定轴把每个元素除以该轴上的总和。类别维是「同一样本内部的不同类别」，沿它归一化，每个样本才得到一个概率分布；沿 batch 维归一化会让不同样本的 logits 互相竞争，样本 0 的预测取决于样本 1 的输入。",
+      "computable": true,
+      "interventions": [
+        {
+          "id": "inv.softmax-dim.class-axis",
+          "action": "输入 (N=8, C=10)，softmax 沿类别维，再沿类别维求和",
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": [
+                "N",
+                "C"
+              ],
+              "softmaxAxis": 1,
+              "sumAxis": 1
+            },
+            "constraints": []
+          },
+          "consequence": "沿归一化轴求和恒为 1，每个样本各自是一个概率分布",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "把「沿类别维求和」和「沿 batch 维求和」记混了",
+              "correction": "softmax 只归一化一根轴；这里归一化的就是类别维，沿同一根轴再求和必然等于 1"
+            }
+          ]
+        },
+        {
+          "id": "inv.softmax-dim.sum-batch",
+          "action": "输入 (N=8, C=10)，softmax 沿类别维，改沿 batch 维求和",
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": [
+                "N",
+                "C"
+              ],
+              "softmaxAxis": 1,
+              "sumAxis": 0
+            },
+            "constraints": []
+          },
+          "consequence": "沿 batch 维求和等于把不同样本的同一类概率相加，结果在 0..8 之间，不是 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为「输出是概率分布」意味着往哪个方向加都是 1",
+              "correction": "归一化只发生在类别轴；batch 轴上每个位置是独立样本，加起来是若干概率之和"
+            }
+          ]
+        },
+        {
+          "id": "inv.softmax-dim.axis-on-batch",
+          "action": "把 softmax 改成沿 batch 维归一化，再沿类别维求和",
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": [
+                "N",
+                "C"
+              ],
+              "softmaxAxis": 0,
+              "sumAxis": 1
+            },
+            "constraints": []
+          },
+          "consequence": "归一化跑到 batch 维之后，类别维上的和不再等于 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为「softmax 之后沿类别维求和等于 1」与轴无关",
+              "correction": "求和为 1 的前提是「求和轴与归一化轴同一根」；轴换了，等式就不成立"
+            }
+          ]
+        },
+        {
+          "id": "inv.softmax-dim.rank3-last",
+          "action": "序列输入 (N=4, T=6, C=10)，softmax 沿最后一维，沿最后一维求和",
+          "contract": {
+            "symbols": {
+              "N": 4,
+              "T": 6,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": [
+                "N",
+                "T",
+                "C"
+              ],
+              "softmaxAxis": -1,
+              "sumAxis": -1
+            },
+            "constraints": []
+          },
+          "consequence": "负轴从末尾数，-1 就是类别维；每个时间步各自归一化，和为 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为维数变多之后「最后一维」就不再是类别维",
+              "correction": "轴 -1 永远是从末尾数第一维；多一个时间步不改变类别维的位置"
+            }
+          ]
+        },
+        {
+          "id": "inv.softmax-dim.rank3-time",
+          "action": "序列输入 (N=4, T=6, C=10)，softmax 沿最后一维，改沿时间维求和",
+          "contract": {
+            "symbols": {
+              "N": 4,
+              "T": 6,
+              "C": 10
+            },
+            "op": {
+              "kind": "softmaxSum",
+              "input": [
+                "N",
+                "T",
+                "C"
+              ],
+              "softmaxAxis": -1,
+              "sumAxis": 1
+            },
+            "constraints": []
+          },
+          "consequence": "沿时间维求和是把同一类别在不同时间步的概率相加，不等于 1",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "只记得「沿 batch 维求和才不成立」，以为时间维是另一回事",
+              "correction": "只有归一化轴成立；时间维和 batch 维一样，都只是「另一根轴」"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.residual-shape.1",
+      "claimId": "clm.arch.train.residual-shape.b560",
+      "cardId": "crd.s3-2",
+      "statement": "残差相加要求主分支输出与捷径输入同形状",
+      "kind": "shape",
+      "mechanism": "残差是逐元素相加：y = x + F(x)。逐元素运算要求两个张量在每个维度上逐一对应，否则「第 i 个元素加第 i 个元素」这件事没有定义。",
+      "computable": true,
+      "interventions": [
+        {
+          "id": "inv.residual.shortcut-dim-halved",
+          "action": "把捷径维从 512 改成 256",
+          "overrides": {
+            "D2": 256
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "N2": 8,
+              "D": 512,
+              "D2": 512
+            },
+            "op": {
+              "kind": "elementWise",
+              "input": [
+                "N",
+                "D"
+              ]
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "D",
+                "right": "D2",
+                "describe": "主分支输出维必须等于捷径维"
+              },
+              {
+                "kind": "equals",
+                "left": "N",
+                "right": "N2",
+                "describe": "两个分支的 batch 必须一致"
+              }
+            ]
+          },
+          "consequence": "捷径只有 256 维、主分支输出 512 维，逐元素相加无法对齐",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "BECOMES_OTHER",
+              "why": "以为捷径变窄后会自动广播成更小的输出",
+              "correction": "广播只在「某一维为 1」时才成立；512 与 256 都不是 1，相加直接报形状错误"
+            }
+          ]
+        },
+        {
+          "id": "inv.residual.shortcut-batch-changed",
+          "action": "把捷径的 batch 从 8 改成 4",
+          "overrides": {
+            "N2": 4
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "N2": 8,
+              "D": 512,
+              "D2": 512
+            },
+            "op": {
+              "kind": "elementWise",
+              "input": [
+                "N",
+                "D"
+              ]
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "D",
+                "right": "D2",
+                "describe": "主分支输出维必须等于捷径维"
+              },
+              {
+                "kind": "equals",
+                "left": "N",
+                "right": "N2",
+                "describe": "两个分支的 batch 必须一致"
+              }
+            ]
+          },
+          "consequence": "两个分支的样本数不同，逐元素相加没有对应关系",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为 batch 由主分支决定，捷径会自动跟随",
+              "correction": "两条分支都必须带 batch 维且必须相等；4 与 8 无法逐元素相加"
+            }
+          ]
+        },
+        {
+          "id": "inv.residual.both-widened",
+          "action": "主分支与捷径一起从 512 改成 768",
+          "overrides": {
+            "D": 768,
+            "D2": 768
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "N2": 8,
+              "D": 512,
+              "D2": 512
+            },
+            "op": {
+              "kind": "elementWise",
+              "input": [
+                "N",
+                "D"
+              ]
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "D",
+                "right": "D2",
+                "describe": "主分支输出维必须等于捷径维"
+              },
+              {
+                "kind": "equals",
+                "left": "N",
+                "right": "N2",
+                "describe": "两个分支的 batch 必须一致"
+              }
+            ]
+          },
+          "consequence": "约束是「两者相等」，不是「必须是 512」；一起改仍然成立",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "把「改了维度」直接当成「一定不成立」",
+              "correction": "条件写的是相等关系，只要两边同步改，形状依然对齐"
+            }
+          ]
+        },
+        {
+          "id": "inv.residual.main-widened-only",
+          "action": "只把主分支输出从 512 改成 768，捷径保持 512",
+          "overrides": {
+            "D": 768
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "N2": 8,
+              "D": 512,
+              "D2": 512
+            },
+            "op": {
+              "kind": "elementWise",
+              "input": [
+                "N",
+                "D"
+              ]
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "D",
+                "right": "D2",
+                "describe": "主分支输出维必须等于捷径维"
+              },
+              {
+                "kind": "equals",
+                "left": "N",
+                "right": "N2",
+                "describe": "两个分支的 batch 必须一致"
+              }
+            ]
+          },
+          "consequence": "捷径取的是输入 x（512 维），与主分支输出的 768 维对不上",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "WEAKENED",
+              "why": "以为维数不同只是让残差变弱一点",
+              "correction": "加法没有「弱一点」这种中间状态：形状不等就是硬失败，算不出来"
+            }
+          ]
+        },
+        {
+          "id": "inv.residual.batch-scaled",
+          "action": "两条分支的 batch 一起从 8 改成 32",
+          "overrides": {
+            "N": 32,
+            "N2": 32
+          },
+          "contract": {
+            "symbols": {
+              "N": 8,
+              "N2": 8,
+              "D": 512,
+              "D2": 512
+            },
+            "op": {
+              "kind": "elementWise",
+              "input": [
+                "N",
+                "D"
+              ]
+            },
+            "constraints": [
+              {
+                "kind": "equals",
+                "left": "D",
+                "right": "D2",
+                "describe": "主分支输出维必须等于捷径维"
+              },
+              {
+                "kind": "equals",
+                "left": "N",
+                "right": "N2",
+                "describe": "两个分支的 batch 必须一致"
+              }
+            ]
+          },
+          "consequence": "batch 是前导维，两边同步变化不影响逐元素相加",
+          "source": "COMPUTED",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "把「batch 变大」当成会撑坏残差形状",
+              "correction": "约束只要求两边一致；同步放大 batch 仍是逐个样本对应相加"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.relu-differentiable.1",
+      "claimId": "clm.arch.ffn.relu-differentiable.a702",
+      "cardId": "crd.s1-2-relu",
+      "statement": "ReLU 并非处处可微：x=0 是它唯一的不可微点",
+      "kind": "gradient",
+      "mechanism": "ReLU(x)=max(0,x)。x<0 时斜率为 0，x>0 时斜率为 1；x=0 处左导 0、右导 1，两条单侧导数不等，所以该点导数不存在。框架在反传时把 0 处的次梯度约定成 0 —— 这是实现约定，不是可微性。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.relu.domain-exclude-zero",
+          "action": "把考察范围收窄为 x ≠ 0",
+          "outcome": "HOLDS",
+          "consequence": "去掉唯一不可微点之后，ReLU 在剩下的定义域上处处可微",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为函数里只要有折点，就一定到处都不可微",
+              "correction": "折点只有一个：x=0。把它从定义域里去掉，剩下的每一点都有唯一导数"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu.zero-point",
+          "action": "只考察 x = 0 这一点",
+          "outcome": "FAILS",
+          "consequence": "左导 0、右导 1，导数不存在；框架回传 0 是次梯度约定，不是导数",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "把「框架能反传」当成「函数在该点可微」",
+              "correction": "反向传播用的是次梯度约定：x=0 处取 0。约定能让计算继续，但不代表左右导数相等"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu.positive-half",
+          "action": "把考察范围收窄为 x > 0",
+          "outcome": "WEAKENED",
+          "consequence": "正半轴上 ReLU 就是恒等映射、导数恒为 1；结论还成立，但适用范围只剩一半",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为收窄范围不会改变命题的强度",
+              "correction": "从「整个实数域」缩到「正半轴」是适用范围变窄：结论没被推翻，但能断言的东西少了"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu.to-softplus",
+          "action": "把激活从 ReLU 换成 Softplus (log(1+e^x))",
+          "outcome": "BECOMES_OTHER",
+          "consequence": "命题变成「Softplus 在整个实数域上处处可微」，那是另一条成立的命题",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为换一个「差不多」的激活，原来的结论照样成立",
+              "correction": "可微性是逐个函数的事实：ReLU 在 0 处不可微、Softplus 处处可微 —— 说成立就已经在说另一个函数了"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu.subgradient-convention",
+          "action": "把框架在 x=0 处的次梯度显式约定为 0",
+          "outcome": "BECOMES_OTHER",
+          "consequence": "命题从「函数是否可微」变成「实现选了哪条次梯度」，描述对象换了",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为给 0 处补一条规则就把不可微点修好了",
+              "correction": "补规则改变的是反传时用哪个斜率，不改变函数本身在该点没有导数这个事实"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.ce-double-softmax.1",
+      "claimId": "clm.arch.ffn.ce-double-softmax.eed8",
+      "cardId": "crd.s1-4",
+      "statement": "交叉熵内部已经做了 log-softmax，外面再套一次 softmax 不等价",
+      "kind": "semantic",
+      "mechanism": "CrossEntropy(logits) = -log softmax(logits)[y]。外面再 softmax 一次，等于对概率分布再归一化：输出仍是概率，但被压向均匀，梯度也从 (p−y) 变成 (p−y)·p，训练信号整体变小。等价只在「logits → 概率」这一层成立，不在「概率 → 概率」上成立。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.ce-double.extra-softmax",
+          "action": "在 CrossEntropy 前再加一次 Softmax",
+          "outcome": "FAILS",
+          "consequence": "不再是等价变换：多了一次归一化，分布被拉平，梯度被乘上额外的概率因子",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为 softmax 是幂等的，做两次和做一次一样",
+              "correction": "softmax 不幂等：对概率再做 softmax 会进一步拉平分布，等于人为降低了模型置信度"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce-double.nll-loss",
+          "action": "改用 NLLLoss 搭配 log_softmax 的输出",
+          "outcome": "BECOMES_OTHER",
+          "consequence": "命题变成「NLLLoss + log_softmax 与 CrossEntropy + logits 等价」，那是另一条成立的命题",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为只要换成「配套」的损失，说的还是原来那条命题",
+              "correction": "换了损失就换了整条链路：这里成立的是「NLLLoss 配 log 概率」，不是「softmax 配交叉熵」"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce-double.temperature",
+          "action": "在 Softmax 上加温度 T=2 再送 CrossEntropy",
+          "outcome": "FAILS",
+          "consequence": "温度把 logits 整体缩小一半，等于换了一个梯度尺度，与原命题不等价",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "WEAKENED",
+              "why": "以为温度只是让概率平滑一点，不影响等价性",
+              "correction": "温度直接改变 logits 的尺度，梯度随之整体缩放；这不是「弱一点」，而是改变了训练动力学"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce-double.log-then-softmax",
+          "action": "先对概率取 log，再做 Softmax，然后送 CrossEntropy",
+          "outcome": "HOLDS",
+          "consequence": "softmax(log p) 恰好还原成 p：取 log 与 softmax 在概率域上互逆，这一步确实不改变结果",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为链路里多一步就一定改变结果",
+              "correction": "log 与 softmax 在概率域上互逆：softmax(log p) = p（因为 p 的和已经是 1），所以这一步不多不少"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce-double.mse-on-probs",
+          "action": "把 CrossEntropy 换成 MSE(Softmax 输出, one-hot)",
+          "outcome": "BECOMES_OTHER",
+          "consequence": "命题变成「MSE + softmax 也能训练分类器」，它成立，但梯度不再等于 p−y",
+          "source": "AUTHORED_MODEL",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为只要还在比较预测和 one-hot，就是同一件事",
+              "correction": "损失换了梯度就换了：MSE 的梯度比交叉熵多乘了 p·(1−p) 两个因子"
             }
           ]
         }

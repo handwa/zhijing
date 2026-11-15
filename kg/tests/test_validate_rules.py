@@ -41,7 +41,7 @@ class TestValidatorPositive(unittest.TestCase):
         c = g["meta"]["counts"]
         self.assertEqual(c["outline"], 24)
         self.assertEqual(c["card"], 22)
-        self.assertEqual(c["claim"], 35)
+        self.assertEqual(c["claim"], 36)
         self.assertEqual(c["entity"], 44)
         self.assertEqual(c["edge"], 16)
 

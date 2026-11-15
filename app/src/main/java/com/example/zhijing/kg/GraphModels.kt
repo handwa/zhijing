@@ -28,13 +28,36 @@ import com.zhijing.data.model.ProbeStatus
  * @param to 依赖卡的 ID（后学这张）
  * @param kind 必须 / 推荐
  * @param reason 为什么存在这条前置（模型给的一句话，可为空）
+ * @param source 这条前置是人工审定还是模型推断 —— 决定 UI 要不要标「未经核实」
  */
 data class PrerequisiteLink(
     val from: String,
     val to: String,
     val kind: PrerequisiteKind,
-    val reason: String = ""
+    val reason: String = "",
+    val source: PrerequisiteSource = PrerequisiteSource.AUTHORED_MODEL
 )
+
+/**
+ * 前置关系的来源。
+ *
+ * 系统不提供课程资料，所以模型给出的前置只是**推断**；出厂图谱里那批是人工撰写并
+ * 逐条核对过的。两者在 UI 上必须能区分，否则用户会把推断当课程事实。
+ *
+ * 缺省取 [AUTHORED_MODEL]：来源不明时按「未经核实」处理，宁可多一句提示。
+ */
+enum class PrerequisiteSource(val wire: String) {
+    /** 人工撰写并核对（出厂图谱）。 */
+    AUTHORED_HUMAN("AUTHORED_HUMAN"),
+
+    /** 模型推断或本地兜底补齐，未经人工核实。 */
+    AUTHORED_MODEL("AUTHORED_MODEL");
+
+    companion object {
+        fun fromWire(raw: String?): PrerequisiteSource =
+            entries.firstOrNull { it.wire.equals(raw, ignoreCase = true) } ?: AUTHORED_MODEL
+    }
+}
 
 /** 前置的强度。 */
 enum class PrerequisiteKind(val wire: String, val label: String) {

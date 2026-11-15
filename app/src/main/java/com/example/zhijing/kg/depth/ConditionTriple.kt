@@ -92,7 +92,15 @@ data class Intervention(
     val id: String,
     /** 干预动作，给用户看。如「把输入最后一维从 4 改成 5」。 */
     val action: String,
-    /** 干预的具体改动：符号 → 新值。为空表示不可计算。 */
+    /**
+     * 干预的具体改动：符号 → 新值。
+     *
+     * 为空有两种情况：
+     * - 不可计算（[contract] 也为空）—— 后果查 [outcome]；
+     * - **结构型可计算**（[contract] 非空）—— 干预写在算子参数里（典型是 softmax 沿哪根轴）。
+     *   这类契约本身就是干预后的形态，没有可拨的符号，因此 `ContractEvaluator.validate()`
+     *   的「未拨动时应当成立」对它不适用。
+     */
     val overrides: Map<String, Int> = emptyMap(),
     /** 可执行契约；非空则 [expected] 由求值器算出，忽略下面的 outcome。 */
     val contract: ShapeContract? = null,

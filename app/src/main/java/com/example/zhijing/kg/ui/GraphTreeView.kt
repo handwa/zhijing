@@ -42,6 +42,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.zhijing.kg.MergedGraph
+import com.example.zhijing.kg.PrerequisiteSource
 import com.example.zhijing.ui.theme.ZjSpace
 import kotlin.math.min
 
@@ -298,6 +299,14 @@ fun GraphTreeView(
 
         // 图例：压缩成**一行小字**放在底部中央，
         // 不再用三行面板 —— 那块面板会遮住近 1/4 屏的卡片。
+        //
+        // 前置关系的来源必须写出来：系统不提供课程资料，模型推断出来的「前置」
+        // 不是核实过的课程事实。出厂图谱那批是人工审定的，所以正常情况下不显示这句。
+        val hasInferredPrereq = remember(graph) {
+            graph.cards.any { card ->
+                card.prerequisites.any { it.source == PrerequisiteSource.AUTHORED_MODEL }
+            }
+        }
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -307,10 +316,14 @@ fun GraphTreeView(
             tonalElevation = 1.dp,
         ) {
             Text(
-                "▶ 必须前置   ▷ 推荐前置   ·· 关联",
+                if (hasInferredPrereq) {
+                    "▶ 必须前置   ▷ 推荐前置   ·· 关联\n部分前置由 AI 推断，未经核实"
+                } else {
+                    "▶ 必须前置   ▷ 推荐前置   ·· 关联"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = 2,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }

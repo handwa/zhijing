@@ -31,7 +31,7 @@ import org.robolectric.annotation.Config
  * 验证「出厂图谱 + Room 运行数据」能合成一份 UI 可用的完整图谱。
  *
  * 守护的关键不变量：
- * 1. 出厂图谱能被完整解析（24 大纲 / 22 卡片 / 35 命题 / 16 边）；
+ * 1. 出厂图谱能被完整解析（24 大纲 / 22 卡片 / 36 命题 / 16 边）；
  * 2. 状态按命题 ID 派生到命题与卡片角标上；
  * 3. **未确认的云端候选不进入图谱**；
  * 4. 已确认的云端命题能挂在对应卡片下，且标记为可删除（bundled=false）。
@@ -42,6 +42,14 @@ class GraphAssemblerTest {
 
     private lateinit var data: ZhiJingData
     private lateinit var assembler: GraphAssembler
+
+    /**
+     * 随包图谱的命题数，与 `graph.json` 的 `meta.counts.claim` 对齐。
+     *
+     * 之所以抽成常量：这一份图谱是「语料 + 补充命题」的出版数据，数量会随内容生产变化，
+     * 散落十几个字面量会让每次补内容都变成找数字。含 1 条 5 章「判断句有边界」的补充命题。
+     */
+    private val bundledClaims = 36
 
     @Before
     fun setUp() {
@@ -90,14 +98,14 @@ class GraphAssemblerTest {
         assertEquals("1.0", graph.schemaVersion)
         assertEquals(24, graph.outline.size)
         assertEquals(22, graph.cards.size)
-        assertEquals(35, graph.claims.size)
+        assertEquals(bundledClaims, graph.claims.size)
         assertEquals(16, graph.edges.size)
     }
 
     @Test
     fun `合并后命题全部标记为出厂且不可删除`() = runBlocking {
         val merged = assembler.load(includeRuntimeClaims = false)
-        assertEquals(35, merged.claims.size)
+        assertEquals(bundledClaims, merged.claims.size)
         assertTrue(merged.claims.values.all { it.bundled })
         assertEquals(0, merged.runtimeClaimCount)
     }
@@ -144,8 +152,8 @@ class GraphAssemblerTest {
         val summary = merged.statusSummary
         assertEquals(1, summary[ProbeStatus.VERIFIED])
         assertEquals(1, summary[ProbeStatus.CONFUSED])
-        // 其余 33 条仍是未探测
-        assertEquals(33, summary[ProbeStatus.UNPROBED])
+        // 其余仍是未探测（一条判对、一条判错）
+        assertEquals(bundledClaims - 2, summary[ProbeStatus.UNPROBED])
     }
 
     @Test
@@ -153,7 +161,7 @@ class GraphAssemblerTest {
         // runtimeClaim 默认就是 PENDING，无需额外参数
         data.kgClaims.addCandidate(runtimeClaim("clm.arch.cloud.test.1a2b", cardId = "crd.s1-1-linear"))
         val merged = assembler.load(includeRuntimeClaims = true)
-        assertEquals(35, merged.claims.size)
+        assertEquals(bundledClaims, merged.claims.size)
         assertFalse(merged.claims.containsKey("clm.arch.cloud.test.1a2b"))
     }
 
@@ -164,7 +172,7 @@ class GraphAssemblerTest {
         data.kgClaims.review(id, ClaimReviewStatus.CONFIRMED)
 
         val merged = assembler.load(includeRuntimeClaims = true)
-        assertEquals(36, merged.claims.size)
+        assertEquals(bundledClaims + 1, merged.claims.size)
         val added = merged.claims.getValue(id)
         assertFalse(added.bundled)
         assertEquals(ClaimSource.CLOUD, added.source)
@@ -183,7 +191,7 @@ class GraphAssemblerTest {
 
         // includeRuntimeClaims = false 时与只读 assets 完全一致
         val merged = assembler.load(includeRuntimeClaims = false)
-        assertEquals(35, merged.claims.size)
+        assertEquals(bundledClaims, merged.claims.size)
         assertFalse(merged.claims.containsKey(id))
     }
 
@@ -218,7 +226,7 @@ class GraphAssemblerTest {
 
         val merged = assembler.load(includeRuntimeClaims = true)
         // 图谱里不应因为这条派生命题多出一条
-        assertEquals(35, merged.claims.size)
+        assertEquals(bundledClaims, merged.claims.size)
     }
 
     @Test
@@ -263,14 +271,14 @@ class GraphAssemblerTest {
 
         // 确认前：在待确认队列里，但不在图谱里
         assertEquals(1, assembler.pendingCandidates().size)
-        assertEquals(35, assembler.load(includeRuntimeClaims = true).claims.size)
+        assertEquals(bundledClaims, assembler.load(includeRuntimeClaims = true).claims.size)
 
         // 确认后：离开队列，进入图谱
         data.kgClaims.review(id, ClaimReviewStatus.CONFIRMED, now = 1_700_000_000_001L)
         assertTrue(assembler.pendingCandidates().isEmpty())
 
         val merged = assembler.load(includeRuntimeClaims = true)
-        assertEquals(36, merged.claims.size)
+        assertEquals(bundledClaims + 1, merged.claims.size)
         assertFalse(merged.claims.getValue(id).bundled)
         assertTrue(merged.cards.first { it.id == "crd.s1-2-relu" }.claims.any { it.id == id })
     }
@@ -292,9 +300,9 @@ class GraphAssemblerTest {
         data.kgClaims.review(id, ClaimReviewStatus.CONFIRMED)
 
         // 离线模式不查询增量命题表：连已确认的也不混进来
-        assertEquals(35, assembler.load(includeRuntimeClaims = false).claims.size)
+        assertEquals(bundledClaims, assembler.load(includeRuntimeClaims = false).claims.size)
         // 云端增强模式才可见
-        assertEquals(36, assembler.load(includeRuntimeClaims = true).claims.size)
+        assertEquals(bundledClaims + 1, assembler.load(includeRuntimeClaims = true).claims.size)
     }
 
     @Test

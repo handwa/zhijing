@@ -37,11 +37,70 @@ import kg_model as M
 ASSETS_PATH = M.REPO_ROOT / "app" / "src" / "main" / "assets" / "kg" / "graph.json"
 SQL_PATH = M.KG_ROOT / "data" / "out" / "graph.sql"
 
+#: 随包深度内容的增补源（前置关系 + 条件三元组）。
+#:
+#: 为什么单独一个文件：`build_graph.py` 只从 markdown 语料产出 outline/card/claim/edge，
+#: 前置关系是模型抽取后人工核对的、三元组是逐条撰写并跑过准入检查的，两者都不在
+#: 语料里。以前它们直接手改在 `assets/kg/graph.json` 上，结果**只要重跑一次管线
+#: （包括 `kg/tests` 里的 export 测试）就会被整份覆盖掉**。
+#: 现在它们有自己的源文件，export 时合并，重跑导出不会再丢。
+SUPPLEMENT_PATH = M.KG_ROOT / "data" / "source" / "deep_supplement.json"
+
 
 def load_graph() -> Dict[str, Any]:
     if not M.GRAPH_JSON.exists():
         raise SystemExit("找不到 kg/data/out/graph.json，先运行 python kg/src/build_graph.py")
     return json.loads(M.GRAPH_JSON.read_text(encoding="utf-8"))
+
+
+def load_supplement() -> Dict[str, Any]:
+    """读增补源；文件不存在时返回空（老仓库照样能导出）。"""
+    if not SUPPLEMENT_PATH.exists():
+        return {}
+    return json.loads(SUPPLEMENT_PATH.read_text(encoding="utf-8"))
+
+
+def merge_supplement(graph: Dict[str, Any], supplement: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    把增补源合进 assets 视图。
+
+    引用不到的条目（卡片被删、命题改 ID）**丢弃并计数**，不让它把导出带崩：
+    宁可少一条前置/三元组，也不能让 APK 里的 graph.json 出现悬空引用。
+    """
+    claim_ids = {c["id"] for c in graph["claims"]}
+    card_ids = {c["id"] for c in graph["cards"]}
+
+    prerequisites: List[Dict[str, Any]] = []
+    dropped_prerequisites = 0
+    for p in supplement.get("prerequisites", []):
+        src, dst = p.get("from"), p.get("to")
+        if src in card_ids and dst in card_ids and src != dst:
+            item = {
+                "from": src,
+                "to": dst,
+                "kind": p.get("kind", "recommended"),
+                "reason": p.get("reason", ""),
+            }
+            if p.get("source"):
+                item["source"] = p["source"]
+            prerequisites.append(item)
+        else:
+            dropped_prerequisites += 1
+
+    triples: List[Dict[str, Any]] = []
+    dropped_triples = 0
+    for t in supplement.get("triples", []):
+        if t.get("id") and t.get("claimId") in claim_ids and t.get("cardId") in card_ids:
+            triples.append(t)
+        else:
+            dropped_triples += 1
+
+    return {
+        "prerequisites": prerequisites,
+        "triples": triples,
+        "droppedPrerequisites": dropped_prerequisites,
+        "droppedTriples": dropped_triples,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -92,8 +151,26 @@ def export_web(graph: Dict[str, Any]) -> Path:
 # --------------------------------------------------------------------------
 
 def export_assets(graph: Dict[str, Any]) -> Path:
+    """
+    导出 Android assets 版图谱。
+
+    与其它两个目标不同：**这里要合并增补源**（前置关系 + 条件三元组）。
+    web/SQL 只需要 build 产出的那部分，多出来的字段它们也用不上。
+    """
+    merged = merge_supplement(graph, load_supplement())
+    payload = dict(graph)
+    payload["prerequisites"] = merged["prerequisites"]
+    payload["triples"] = merged["triples"]
+
     ASSETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ASSETS_PATH.write_text(json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8")
+    ASSETS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    dropped = merged["droppedPrerequisites"] + merged["droppedTriples"]
+    if dropped:
+        print(
+            f"  ! 增补源有 {dropped} 条引用不到节点被丢弃"
+            f"（前置 {merged['droppedPrerequisites']} / 三元组 {merged['droppedTriples']}）"
+        )
     return ASSETS_PATH
 
 

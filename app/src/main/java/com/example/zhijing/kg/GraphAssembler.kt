@@ -570,7 +570,10 @@ data class ParsedGraph(
                     from = from,
                     to = to,
                     kind = PrerequisiteKind.fromWire(m.str("kind")),
-                    reason = m.strOrEmpty("reason")
+                    reason = m.strOrEmpty("reason"),
+                    // 没写 source 的老数据按「模型推断」处理：宁可多一句标注，不能把
+                    // 未经核实的推断当成课程事实展示。
+                    source = PrerequisiteSource.fromWire(m.str("source"))
                 )
             }
 

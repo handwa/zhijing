@@ -21,6 +21,10 @@ build/
 # 构建与调试日志
 *.log
 
+# Python 缓存（kg 工具链）
+__pycache__/
+*.pyc
+
 # 大体积模型资产不进仓库（约 2 GB），由开发者本地放置
 **/assets/model/*.gguf
 /CODEBUDDY.md
