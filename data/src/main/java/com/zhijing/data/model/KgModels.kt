@@ -148,6 +148,88 @@ data class ClaimProbeState(
 }
 
 /**
+ * 一个「条件 × 干预点」上的作答记录（条件级状态）。
+ *
+ * ## 与 [ClaimProbeState] 的分工
+ *
+ * - [ClaimProbeState]：**命题**粒度，回答「这条命题我掌握没有」，用于广度侧角标与复习队列；
+ * - [ConditionProbeState]：**干预点**粒度，回答「我把哪条边界想错了」，用于把事实写回卡片。
+ *
+ * 命题粒度存不下「错在哪条机制」：同一条命题下可能有三个条件、六个干预点，
+ * 收敛成一个 CONFUSED 之后，用户根本不知道自己错在「内维要对齐」还是「softmax 沿哪根轴」。
+ *
+ * ## 选项为什么是字符串
+ *
+ * 选项集合由 app 层的 `Outcome` 定义（仍然成立 / 变窄 / 变成另一条 / 不成立），
+ * 而 `:data` 不依赖 app。存 wire 值而不是自建一份枚举，是为了让选项集合以后扩充时
+ * **旧记录仍然可读**（未知值只是渲染不出来，不会解析失败）。
+ */
+data class ConditionProbeState(
+    /** 条件三元组 ID（`tri.*`）。 */
+    val tripleId: String,
+
+    /** 干预点 ID，三元组内唯一。 */
+    val interventionId: String,
+
+    /** 所属命题 ID（`clm.*`），广度侧按命题聚合用。 */
+    val claimId: String,
+
+    /** 用户最近一次的选择（`Outcome` 的 name）。 */
+    val predictedOption: String,
+
+    /** 最近一次的真实后果（本地求值或预置答案）。 */
+    val correctOption: String,
+
+    /** 最近一次是否猜对。 */
+    val matched: Boolean,
+
+    /** 作答次数。 */
+    val attempts: Int = 0,
+
+    /** 猜错的累计次数（答对后也不清零）。 */
+    val wrongAttempts: Int = 0,
+
+    /** 最近作答时间；从未作答为 null。 */
+    val lastProbedAt: Long? = null,
+
+    /** 该干预点上的误解摘要；答对时不覆盖。 */
+    val misconception: String? = null
+)
+
+/**
+ * 一条命题下**所有**条件级记录的聚合，广度侧卡片直接用这个渲染事实。
+ *
+ * 刻意不含百分比 / 掌握度：设计文档要求卡片显示「在这里错过几次、错在哪条机制」，
+ * 百分比既不驱动行动，也容易把「只答过一次」说成「80% 掌握」。
+ */
+data class ConditionProbeSummary(
+    val claimId: String,
+
+    /** 该命题下所有干预点的作答总次数。 */
+    val attempts: Int = 0,
+
+    /** 猜错的累计次数，即卡片上的「在这里错过几次」。 */
+    val wrongCount: Int = 0,
+
+    /**
+     * 错过的干预点 ID（去重，最近错过的在前）。
+     *
+     * 只给 ID，不给条件文本：条件文本属于出厂图谱，由 UI 回查 `graph.json`，
+     * 避免数据层再存一份会过期的文案。
+     */
+    val missedInterventionIds: List<String> = emptyList(),
+
+    /** 对应干预点上的误解摘要（去重，最近在前）。 */
+    val misconceptions: List<String> = emptyList(),
+
+    /** 最近一次作答时间。 */
+    val lastProbedAt: Long? = null
+) {
+    /** 是否有可回写的事实（一次都没答过时卡片保持干净）。 */
+    val hasWriteback: Boolean get() = attempts > 0
+}
+
+/**
  * 云端生成 / 用户录入的增量命题。
  *
  * 出厂命题不在此列；这里只放「运行时才出现」的命题。

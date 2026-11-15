@@ -2,9 +2,11 @@ package com.zhijing.data.mapper
 
 import com.zhijing.data.entity.KgClaimMergeEntity
 import com.zhijing.data.entity.KgClaimStateEntity
+import com.zhijing.data.entity.KgConditionProbeEntity
 import com.zhijing.data.entity.KgRuntimeClaimEntity
 import com.zhijing.data.model.ClaimMerge
 import com.zhijing.data.model.ClaimProbeState
+import com.zhijing.data.model.ConditionProbeState
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.ClaimSource
 import com.zhijing.data.model.ProbeStatus
@@ -37,6 +39,32 @@ internal fun ClaimProbeState.toEntity(): KgClaimStateEntity = KgClaimStateEntity
     attempts = attempts,
     correct = correct,
     streak = streak
+)
+
+internal fun KgConditionProbeEntity.toDomain(): ConditionProbeState = ConditionProbeState(
+    tripleId = tripleId,
+    interventionId = interventionId,
+    claimId = claimId,
+    predictedOption = predictedOption,
+    correctOption = correctOption,
+    matched = matched,
+    attempts = attempts,
+    wrongAttempts = wrongAttempts,
+    lastProbedAt = lastProbedAt,
+    misconception = misconception
+)
+
+internal fun ConditionProbeState.toEntity(): KgConditionProbeEntity = KgConditionProbeEntity(
+    tripleId = tripleId,
+    interventionId = interventionId,
+    claimId = claimId,
+    predictedOption = predictedOption,
+    correctOption = correctOption,
+    matched = matched,
+    attempts = attempts,
+    wrongAttempts = wrongAttempts,
+    lastProbedAt = lastProbedAt,
+    misconception = misconception
 )
 
 internal fun KgRuntimeClaimEntity.toDomain(): RuntimeClaim = RuntimeClaim(

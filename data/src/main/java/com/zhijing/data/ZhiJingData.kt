@@ -2,9 +2,11 @@
 
 import android.content.Context
 import com.zhijing.data.repository.AssociationRepository
+import com.zhijing.data.repository.ConditionProbeRepository
 import com.zhijing.data.repository.ContentRepository
 import com.zhijing.data.repository.ConversationRepository
 import com.zhijing.data.repository.DefaultAssociationRepository
+import com.zhijing.data.repository.DefaultConditionProbeRepository
 import com.zhijing.data.repository.DefaultContentRepository
 import com.zhijing.data.repository.DefaultConversationRepository
 import com.zhijing.data.repository.DefaultGeneratedGraphRepository
@@ -73,6 +75,14 @@ class ZhiJingData internal constructor(private val db: ZhijingDatabase) {
      * 出厂命题在 `assets/kg/graph.json`，本仓库只存状态，回写走派生。
      */
     val kgStates: KgStateRepository = DefaultKgStateRepository(db)
+
+    /**
+     * 知识图谱：条件级探测记录（哪条机制的哪一问答错、答错几次）。
+     *
+     * 与 [kgStates] 是两个粒度：本仓库只回答「错在哪」，不参与掌握度收敛；
+     * 广度侧按 `claimIds` 现算摘要，不把状态抄进图谱数据。
+     */
+    val kgConditionProbes: ConditionProbeRepository = DefaultConditionProbeRepository(db)
 
     /**
      * 知识图谱：云端 / 用户产生的增量命题与同义合并映射。
