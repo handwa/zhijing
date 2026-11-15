@@ -178,6 +178,12 @@ fun GraphTreeView(
     val currentOffset = rememberUpdatedState(offset)
     val currentFit = rememberUpdatedState(fitScale)
 
+    // 选中某张卡片时，与它有依赖/关联的卡片一起高亮（其余压暗）。
+    // 依赖 `layout` 而不是重建图：切换视图会重算布局，这个集合也必须跟着重算。
+    val relatedNodes = remember(layout, selectedNode) {
+        EdgePresentation.relatedNodes(layout.lines, selectedNode)
+    }
+
     Box(modifier.fillMaxSize()) {
         Canvas(
             Modifier
@@ -249,15 +255,20 @@ fun GraphTreeView(
                     // 与背景几乎同色，用户反馈「看不到层级连线」即由此而来
                     hierarchyColor = colors.outline,
                     crossColor = colors.outline,
-                    requiredColor = colors.tertiary,
-                    recommendedColor = colors.tertiary.copy(alpha = 0.55f),
                     density = density.density,
                     pxPerDp = pxPerDp,
                     selectedNode = selectedNode,
                     // 依赖视图里层级线是噪音：两种关系混在一起正是要解决的问题
                     hideHierarchy = dependencyOnly,
                 )
-                drawNodes(layout, measurer, colors, density.density, selectedNode)
+                drawNodes(
+                    layout = layout,
+                    measurer = measurer,
+                    colors = colors,
+                    density = density.density,
+                    selectedNode = selectedNode,
+                    relatedNodes = relatedNodes,
+                )
             }
         }
 
@@ -315,11 +326,19 @@ fun GraphTreeView(
             shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
             tonalElevation = 1.dp,
         ) {
+            // 没有选中时不画依赖线，图例也不该列出三种线让人找不到 ——
+            // 先告诉用户"点一下就有了"，选中之后再解释线型。
+            val legend = when {
+                selectedNode != null -> "▬ 必须前置（暗红）　┅ 推荐前置（暖橙）　▬ 后续（蓝）"
+                // 依赖视图本身就在展示依赖，图例不能还写"点一下才有"
+                dependencyOnly -> "▬ 必须前置（暗红）　┅ 推荐前置（暖橙）"
+                else -> "点击卡片查看前置与后续关系"
+            }
             Text(
-                if (hasInferredPrereq) {
-                    "▶ 必须前置   ▷ 推荐前置   ·· 关联\n部分前置由 AI 推断，未经核实"
+                text = if (hasInferredPrereq) {
+                    legend + "\n部分前置由 AI 推断，未经核实"
                 } else {
-                    "▶ 必须前置   ▷ 推荐前置   ·· 关联"
+                    legend
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
@@ -440,17 +459,27 @@ private fun DrawScope.drawGroups(
 /**
  * 画连线。
  *
- * 视觉契约：
+ * ## 显示规则（用户定的，别"优化"）
  *
- * | 样式 | 线型 | 颜色 | 粗细 | 箭头 |
+ * - **未选中任何节点**：只画层级线。前置 / 推荐 / 关联一条都不画 ——
+ *   20 个节点的图同时压三类斜线，谁也读不出来。
+ * - **选中一张卡片**：只画与它相连的线，并按方向换称谓与配色：
+ *   指向选中卡的是「前置」，从选中卡出发的是「后续」。
+ *
+ * ## 视觉契约
+ *
+ * | 身份 | 线型 | 颜色 | 粗细 | 箭头 |
  * |---|---|---|---|---|
- * | 章节层级 | 折线 | 描边色 | 1.6 | 无 |
- * | **必须前置** | **实线** | **赭黄（Ochre）** | **3.0** | **有** |
- * | **推荐前置** | **虚线** | 赭黄半透明 | 1.8 | **有** |
- * | 交叉链接 | 细虚线 | 描边色（最淡） | 1.0 | 无 |
+ * | 章节层级 | 正交折线 | 描边色（相关 1.0 / 无关 0.35） | 1.6 | 无 |
+ * | 必须前置 | 实线 | `#D63031` 暗红 | 3.0 | 有 |
+ * | 推荐前置 | 虚线 | `#F39C12` 暖橙 | 2.0 | **无** |
+ * | 后续线 | 实线 | `#0984E3` 柔和蓝 | 3.0 | 有 |
+ * | 交叉关联 | 细虚线 | 描边色（最淡） | 1.0 | 无 |
  *
- * **前置线刻意不用主色（绿）**：主色与层级线同为绿灰系，在缩小的画布上分不出来，
- * 用户根本看不到「谁必须先学」。换成赭黄 + 加粗 + 箭头，才能一眼跳出来。
+ * 用固定色值而不是主题色：这三条是**语义编码**，不是装饰。暗红 / 暖橙 / 柔和蓝
+ * 在浅色与深色主题下都能互相区分，而主题色会随品牌色漂移、和层级线撞色。
+ *
+ * 走向见 [linePath]：同列走二次贝塞尔（不是直线），跨列的必须前置复用层级折线。
  *
  * 坐标直接用 dp 原值，由外层变换统一处理。
  * 线宽需要**反比于缩放**，否则放大时线会跟着变粗 —— 除以 [pxPerDp] 抵消。
@@ -459,8 +488,6 @@ private fun DrawScope.drawLines(
     layout: TreeLayout.Result,
     hierarchyColor: Color,
     crossColor: Color,
-    requiredColor: Color,
-    recommendedColor: Color,
     density: Float,
     pxPerDp: Float,
     selectedNode: String?,
@@ -473,87 +500,144 @@ private fun DrawScope.drawLines(
     val dashWide = PathEffect.dashPathEffect(floatArrayOf(8f * unit, 5f * unit), 0f)
 
     layout.lines.forEach { line ->
-        // 关系高亮：选中某节点时，**与它相连的线**加粗提亮，其余淡出。
-        //
-        // 这是「点击节点查看关系」的核心 —— 22 个节点、30+ 条线同时画在屏幕上，
-        // 用户无法靠肉眼追踪某个节点的依赖。选中后只让相关的线保留存在感，
-        // 用户才能回答「这个点依赖谁、谁依赖它」。
+        val role = EdgePresentation.roleOf(
+            style = line.style,
+            fromNode = line.fromNode,
+            toNode = line.toNode,
+            selected = selectedNode,
+            // 依赖视图里层级线被藏起来了，未选中时再藏依赖线就只剩节点
+            alwaysShowDependencies = hideHierarchy,
+        ) ?: return@forEach
+
+        // 依赖视图把层级线整体隐藏（它在这个视图里是噪音）
+        if (role == EdgePresentation.Role.HIERARCHY && hideHierarchy) return@forEach
+
+        // 层级线是骨架：选中时把与选中无关的**压暗**而不是删掉。
+        // 删掉会让用户以为选错了节点 —— 图突然小了一半。
         val related = selectedNode != null &&
             (line.fromNode == selectedNode || line.toNode == selectedNode)
-        val unrelated = selectedNode != null && !related
-        val alphaScale = if (unrelated) 0.18f else 1f
-        val widthScale = if (related) 1.7f else 1f
+        val hierarchyAlpha = if (selectedNode == null || related) 1f else 0.35f
 
-        // 层级线在选中时进一步淡化：它是背景，不该盖过依赖关系
-        val isHierarchy = line.style == TreeLayout.Line.Style.HIERARCHY
-        // 依赖视图整体不要层级线；选中态下再额外隐藏与选中无关的层级线
-        val skip = isHierarchy && (hideHierarchy || (selectedNode != null && !related))
+        val path = linePath(line)
+        when (role) {
+            EdgePresentation.Role.HIERARCHY -> drawPath(
+                path = path,
+                color = hierarchyColor.copy(alpha = hierarchyColor.alpha * hierarchyAlpha),
+                style = Stroke(width = 1.6f * unit * (if (related) 1.7f else 1f)),
+            )
 
-        if (skip) return@forEach
-
-        when (line.style) {
-            // 层级线：横向布局下是「父右中 → 子左中」的水平折线。
-            // 它是背景结构，但要**看得见**：过淡过细时用户会把平铺的节点
-            // 读成「没有层级连线」（生成图谱反馈过）。
-            TreeLayout.Line.Style.HIERARCHY -> {
-                val c = hierarchyColor.copy(alpha = hierarchyColor.alpha * alphaScale)
-                val midX = line.fromX + (line.toX - line.fromX) * 0.5f
-                val w = 1.6f * unit * widthScale
-                drawLine(c, Offset(line.fromX, line.fromY), Offset(midX, line.fromY), strokeWidth = w)
-                drawLine(c, Offset(midX, line.fromY), Offset(midX, line.toY), strokeWidth = w)
-                drawLine(c, Offset(midX, line.toY), Offset(line.toX, line.toY), strokeWidth = w)
-            }
-
-            // 必须前置：赭黄实线 + 箭头。这是全图最需要被看见的信息。
-            TreeLayout.Line.Style.PREREQUISITE_REQUIRED -> {
-                val c = requiredColor.copy(alpha = requiredColor.alpha * alphaScale)
-                drawLine(
-                    c,
-                    Offset(line.fromX, line.fromY),
-                    Offset(line.toX, line.toY),
-                    strokeWidth = 3f * unit * widthScale
+            EdgePresentation.Role.REQUIRED -> {
+                drawPath(
+                    path = path,
+                    color = GraphLineColors.required,
+                    style = Stroke(width = 3f * unit),
                 )
                 drawArrowHead(
-                    color = c,
-                    from = Offset(line.fromX, line.fromY),
+                    color = GraphLineColors.required,
+                    from = arrowAnchor(line),
                     to = Offset(line.toX, line.toY),
-                    // 16px（约 5dp @3x）。原来 7px，投到大屏再缩放后基本看不见 —— 客户反馈过。
-                    // `unit` 把屏幕像素换算回内容坐标，所以放大缩小箭头的**视觉大小不变**。
+                    // 16px（约 5dp @3x）。`unit` 把屏幕像素换算回内容坐标，
+                    // 所以放大缩小箭头的**视觉大小不变**。
                     size = 16f * unit,
                 )
             }
 
-            // 推荐前置：赭黄虚线 + 箭头，比必须前置细一档
-            TreeLayout.Line.Style.PREREQUISITE_RECOMMENDED -> {
-                val c = recommendedColor.copy(alpha = recommendedColor.alpha * alphaScale)
-                drawLine(
-                    c,
-                    Offset(line.fromX, line.fromY),
-                    Offset(line.toX, line.toY),
-                    strokeWidth = 1.8f * unit * widthScale,
-                    pathEffect = dashWide
+            // 推荐前置**不给箭头**：箭头是"这条依赖成立"的断言，建议性的关系不该有方向感。
+            EdgePresentation.Role.RECOMMENDED -> drawPath(
+                path = path,
+                color = GraphLineColors.recommended,
+                style = Stroke(width = 2f * unit, pathEffect = dashWide),
+            )
+
+            EdgePresentation.Role.SUCCESSOR -> {
+                drawPath(
+                    path = path,
+                    color = GraphLineColors.successor,
+                    style = Stroke(width = 3f * unit),
                 )
                 drawArrowHead(
-                    color = c,
-                    from = Offset(line.fromX, line.fromY),
+                    color = GraphLineColors.successor,
+                    from = arrowAnchor(line),
                     to = Offset(line.toX, line.toY),
-                    // 比必须前置小一档，但仍然要能一眼分辨方向
-                    size = 13f * unit,
+                    size = 16f * unit,
                 )
             }
 
-            // 交叉链接：保持斜线 + 极淡。
-            // 它连接跨章节的节点，正交折线会与层级线混淆。
-            TreeLayout.Line.Style.CROSS ->
-                drawLine(
-                    crossColor.copy(alpha = 0.4f * alphaScale),
-                    Offset(line.fromX, line.fromY),
-                    Offset(line.toX, line.toY),
-                    strokeWidth = 1f * unit * widthScale,
-                    pathEffect = dashFine
-                )
+            // 交叉关联：极淡细虚线，它只是"有关"，不是依赖
+            EdgePresentation.Role.CROSS -> drawPath(
+                path = path,
+                color = crossColor.copy(alpha = 0.4f),
+                style = Stroke(width = 1f * unit, pathEffect = dashFine),
+            )
         }
     }
+}
+
+/**
+ * 依赖线的语义配色。
+ *
+ * 固定色值而不是主题色：这三条线是**语义编码**。主题色会随品牌色漂移，
+ * 一旦和层级线撞色，"必须先学"这条信息就没了。
+ */
+internal object GraphLineColors {
+    /** 必须前置：`#D63031` 暗红。 */
+    val required = Color(0xFFD63031)
+
+    /** 推荐前置：`#F39C12` 暖橙。 */
+    val recommended = Color(0xFFF39C12)
+
+    /** 后续线：`#0984E3` 柔和蓝。 */
+    val successor = Color(0xFF0984E3)
+}
+
+/**
+ * 按 [TreeLayout.Line.Route] 把一条线转成 Path。
+ *
+ * 三种走法各有理由：
+ * - [TreeLayout.Line.Route.ELBOW]：层级线与「跨列必须前置」共用。
+ *   树里已经有这条正交路径，再画一条斜线等于同一关系画两遍。
+ * - [TreeLayout.Line.Route.CURVE]：同列依赖。直线会像表格分隔线，
+ *   弧线才像"从前一个连到后一个"；控制点由布局算好（避开节点框）。
+ * - [TreeLayout.Line.Route.STRAIGHT]：交叉关联，保持最轻的斜线。
+ */
+private fun linePath(line: TreeLayout.Line): Path {
+    val path = Path()
+    when (line.route) {
+        TreeLayout.Line.Route.ELBOW -> {
+            val midX = line.fromX + (line.toX - line.fromX) * 0.5f
+            path.moveTo(line.fromX, line.fromY)
+            path.lineTo(midX, line.fromY)
+            path.lineTo(midX, line.toY)
+            path.lineTo(line.toX, line.toY)
+        }
+
+        TreeLayout.Line.Route.CURVE -> {
+            path.moveTo(line.fromX, line.fromY)
+            path.quadraticBezierTo(line.ctrlX, line.ctrlY, line.toX, line.toY)
+        }
+
+        TreeLayout.Line.Route.STRAIGHT -> {
+            path.moveTo(line.fromX, line.fromY)
+            path.lineTo(line.toX, line.toY)
+        }
+    }
+    return path
+}
+
+/**
+ * 箭头朝向的参考点。
+ *
+ * 曲线取末端切线（控制点 → 终点），折线取最后一段，直线取起点；
+ * 否则曲线上的箭头会按首尾连线摆，方向明显偏掉。
+ */
+private fun arrowAnchor(line: TreeLayout.Line): Offset = when (line.route) {
+    TreeLayout.Line.Route.CURVE -> Offset(line.ctrlX, line.ctrlY)
+    TreeLayout.Line.Route.ELBOW -> Offset(
+        line.fromX + (line.toX - line.fromX) * 0.5f,
+        line.toY,
+    )
+
+    TreeLayout.Line.Route.STRAIGHT -> Offset(line.fromX, line.fromY)
 }
 
 /**
@@ -604,14 +688,17 @@ private fun DrawScope.drawNodes(
     colors: androidx.compose.material3.ColorScheme,
     density: Float,
     selectedNode: String?,
+    /** 与选中节点有依赖/关联关系的节点：一起高亮，其余压暗。 */
+    relatedNodes: Set<String> = emptySet(),
 ) {
     layout.nodes.forEach { node ->
         val topLeft = Offset(node.x, node.y)
         val size = Size(node.width, node.height)
 
         val isSelected = node.nodePath == selectedNode
-        // 选中时其他节点淡化，让「这一个节点和它的邻居」跳出来
-        val dimmed = selectedNode != null && !isSelected
+        val isRelated = node.nodePath in relatedNodes
+        // 选中时只保留「自己 + 相关卡片」的存在感，其余淡化
+        val dimmed = selectedNode != null && !isSelected && !isRelated
 
         // 有内容（可点开）的节点用实心胶囊；组织性节点用虚化描边。
         // 一眼能看出「哪里点得进去」。
@@ -619,10 +706,11 @@ private fun DrawScope.drawNodes(
         val fillAlpha = if (hasContent) 0.14f else 0.05f
 
         drawRoundRect(
-            color = if (isSelected) {
-                colors.primary.copy(alpha = 0.28f)
-            } else {
-                colors.primary.copy(alpha = if (dimmed) fillAlpha * 0.5f else fillAlpha)
+            color = when {
+                isSelected -> colors.primary.copy(alpha = 0.28f)
+                // 相关卡片给一层很浅的底：既区别于背景，又不抢选中卡片的焦点
+                isRelated -> colors.primary.copy(alpha = 0.12f)
+                else -> colors.primary.copy(alpha = if (dimmed) fillAlpha * 0.5f else fillAlpha)
             },
             topLeft = topLeft,
             size = size,
@@ -631,13 +719,21 @@ private fun DrawScope.drawNodes(
         drawRoundRect(
             color = when {
                 isSelected -> colors.primary
+                isRelated -> colors.primary.copy(alpha = 0.85f)
                 hasContent -> colors.primary.copy(alpha = if (dimmed) 0.25f else 0.55f)
                 else -> colors.outline.copy(alpha = if (dimmed) 0.25f else 0.7f)
             },
             topLeft = topLeft,
             size = size,
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(node.height / 2),
-            style = Stroke(width = if (isSelected) 2.2f else if (hasContent) 1.2f else 1f)
+            style = Stroke(
+                width = when {
+                    isSelected -> 2.2f
+                    isRelated -> 1.8f
+                    hasContent -> 1.2f
+                    else -> 1f
+                }
+            )
         )
 
         // 文本：宽度约束用像素（= dp × density）

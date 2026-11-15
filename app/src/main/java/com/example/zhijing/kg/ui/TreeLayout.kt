@@ -4,6 +4,8 @@ import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphOutlineNode
 import com.example.zhijing.kg.MergedGraph
 import com.example.zhijing.kg.PrerequisiteKind
+import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 
 /**
@@ -43,8 +45,17 @@ object TreeLayout {
     const val HEADER_HEIGHT = 32f
 
 
+    /**
+     * 同一列里上下两个节点之间的缝隙。
+     *
+     * 从 22 提到 28：依赖线不再走直线，而是从上一个节点底边**弧**到下一个节点顶边，
+     * 22dp 的缝隙里弧线会被压成几乎垂直的一段，和原来的直线没有差别。
+     * 只加 6dp，13 个节点多出不到 80dp，不影响一屏。
+     */
+    const val ROW_GAP = 28f
+
     /** 行高：只按节点高度算 —— 卡片已删除，不要把卡片高度算进来。 */
-    const val ROW_HEIGHT = HEADER_HEIGHT + 22f
+    const val ROW_HEIGHT = HEADER_HEIGHT + ROW_GAP
 
 
 
@@ -116,6 +127,16 @@ object TreeLayout {
          */
         val fromNode: String? = null,
         val toNode: String? = null,
+        /** 线的走向，默认直连（旧行为）。 */
+        val route: Route = Route.STRAIGHT,
+        /**
+         * [Route.CURVE] 的控制点（dp 绝对坐标）。
+         *
+         * 在布局阶段算好而不是绘制阶段算：控制点要避开节点框，只有布局知道几何，
+         * DrawScope 里手算会把「节点位置」这份唯一真相复制一份出去。
+         */
+        val ctrlX: Float = 0f,
+        val ctrlY: Float = 0f,
     ) {
         /**
          * 连线样式。
@@ -127,6 +148,15 @@ object TreeLayout {
          * - [CROSS]：交叉链接（仅"有关"），细虚线，最淡
          */
         enum class Style { HIERARCHY, PREREQUISITE_REQUIRED, PREREQUISITE_RECOMMENDED, CROSS }
+
+        /**
+         * 连线走向。
+         *
+         * - [STRAIGHT]：两点直连（交叉链接）
+         * - [ELBOW]：正交折线，与层级线同一套走法（必须前置跨列时复用它，少一种线型）
+         * - [CURVE]：二次贝塞尔，控制点见 [ctrlX] / [ctrlY]
+         */
+        enum class Route { STRAIGHT, ELBOW, CURVE }
     }
 
     /** 一次布局的完整结果。 */
@@ -300,6 +330,7 @@ object TreeLayout {
                         style = Line.Style.HIERARCHY,
                         fromNode = parentNode.nodePath,
                         toNode = node.path,
+                        route = Line.Route.ELBOW,
                     )
                 }
 
@@ -347,25 +378,54 @@ object TreeLayout {
                 val from = positionOf[fromPath] ?: return@forEach
                 val to = positionOf[toPath] ?: return@forEach
                 // 端点几何：横向 tidy tree 里同层节点共享一列，所以大多数前置
-                // 是「同列上下两节点」。旧画法从源节点**顶边**中点连到目标节点
-                // **底边**中点，链式依赖会斜穿整列、盖过中间所有节点，读不出依赖。
-                // 改为：
-                // - 同列：源下边中 → 目标上边中的竖线，箭头指向目标顶部 ——
-                //   依赖链就是列内一条向下的箭头链；
-                // - 跨列：源右边中 → 目标左边中，与阅读方向一致（层级线同向，
-                //   靠颜色/粗细/箭头区分）。
-                val sameColumn = kotlin.math.abs(from.x - to.x) < 1f
+                // 是「同列上下两节点」。
+                //
+                // 画法（刻意不是直线）：
+                // - 同列：源下边中 → 目标上边中，但走**二次贝塞尔**向列左侧鼓出。
+                //   直线会把「前一个的底」和「后一个的顶」连成一条竖线，看上去像
+                //   表格的分隔线而不是关系；弧线在 28dp 的缝隙里绕一下，才像"连过去"。
+                //   跨多个节点的长跳鼓得更大，否则弧线会贴着中间节点压过去。
+                // - 跨列 + 必须前置：**复用层级线的正交折线**（父右中 → 中缝 → 左中）。
+                //   既然树已经有这条路径，再画一条斜线就是同一条关系画两遍。
+                // - 跨列 + 推荐前置：虚线自己一条浅弧，不与层级线共用通道 ——
+                //   "建议"不该看起来像"结构"。
+                val sameColumn = abs(from.x - to.x) < 1f
+                val required = link.kind == PrerequisiteKind.REQUIRED
+                val startX = if (sameColumn) from.x + from.width / 2 else from.x + from.width
+                val startY = if (sameColumn) from.y + from.height else from.y + from.height / 2
+                val endX = if (sameColumn) to.x + to.width / 2 else to.x
+                val endY = if (sameColumn) to.y else to.y + to.height / 2
+
+                val route = when {
+                    sameColumn -> Line.Route.CURVE
+                    required -> Line.Route.ELBOW
+                    else -> Line.Route.CURVE
+                }
+                val bulge = when {
+                    // 同列相邻：小弧（10dp），在 28dp 的缝隙里绕一下就够
+                    sameColumn && abs(endY - startY) <= ROW_HEIGHT * 1.5f -> 10f
+                    // 同列长跳：大弧（40dp）。仍然是从节点底下穿过去 ——
+                    // 想完全绕开中间节点得走列外车道，那是下一步的事，这里只求"看得出是弧"。
+                    sameColumn -> 40f
+                    // 跨列虚线：浅弧，别和层级折线共用通道
+                    else -> 14f
+                }
+                val ctrl = curveControl(startX, startY, endX, endY, bulge)
+
                 lines += Line(
-                    fromX = if (sameColumn) from.x + from.width / 2 else from.x + from.width,
-                    fromY = if (sameColumn) from.y + from.height else from.y + from.height / 2,
-                    toX = if (sameColumn) to.x + to.width / 2 else to.x,
-                    toY = if (sameColumn) to.y else to.y + to.height / 2,
+                    fromX = startX,
+                    fromY = startY,
+                    toX = endX,
+                    toY = endY,
                     style = when (link.kind) {
                         PrerequisiteKind.REQUIRED -> Line.Style.PREREQUISITE_REQUIRED
                         PrerequisiteKind.RECOMMENDED -> Line.Style.PREREQUISITE_RECOMMENDED
                     },
                     fromNode = fromPath,
                     toNode = toPath,
+                    route = route,
+                    ctrlX = ctrl.first,
+                    ctrlY = ctrl.second,
                 )
             }
         }
@@ -396,6 +456,27 @@ object TreeLayout {
         val contentWidth = maxRight + PADDING * 2
         val contentHeight = groupTop
         return Result(nodes, lines, contentWidth, contentHeight, groups)
+    }
+
+    /**
+     * 二次贝塞尔的控制点：中点沿**垂直方向**偏移 [bulge]。
+     *
+     * 符号约定：向下走的线（同列）正数向**左**鼓，水平走的线（跨列）正数向**下**鼓。
+     * 抽出成纯函数是为了能单测——弧线的形状一旦错，截图里会立刻变成「线穿过卡片」。
+     */
+    internal fun curveControl(
+        fromX: Float,
+        fromY: Float,
+        toX: Float,
+        toY: Float,
+        bulge: Float,
+    ): Pair<Float, Float> {
+        val dx = toX - fromX
+        val dy = toY - fromY
+        val len = hypot(dx, dy).coerceAtLeast(0.001f)
+        val mx = (fromX + toX) / 2f
+        val my = (fromY + toY) / 2f
+        return Pair(mx - dy / len * bulge, my + dx / len * bulge)
     }
 
     /** 结构图的两种读法。 */

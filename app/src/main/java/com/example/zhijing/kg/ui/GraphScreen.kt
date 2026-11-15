@@ -102,7 +102,7 @@ internal fun GraphScreen(
     var descendCardId by remember { mutableStateOf<String?>(null) }
     var claimIndex by remember { mutableIntStateOf(0) }
     // 结构图里被点中的节点路径（null = 未选中）。
-    // 选中后：与它相连的连线高亮、其余淡出，并弹出底部详情。
+    // 未选中时只画层级线；选中后只画与它相连的前置/后续线，相关卡片一起高亮。
     var selectedNodePath by remember { mutableStateOf<String?>(null) }
     // 视图形态：卡片流（默认，好读）或结构图（看关系）。
     // 刻意做成**同一个页面的两种呈现**，而不是两个一级 tab ——
