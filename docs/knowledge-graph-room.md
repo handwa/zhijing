@@ -1,7 +1,7 @@
 # 知识图谱的存储分层：出厂命题在 assets，运行时数据在 Room
 
 > 对应代码：`data/src/main/java/com/zhijing/data/{entity,dao,repository}/Kg*.kt`
-> 数据库版本：`ZhijingDatabase` v6（3 张运行时表 + 4 张生成图谱表）
+> 数据库版本：`ZhijingDatabase` v7（4 张运行时表 + 4 张生成图谱表）
 
 ## 一、要解决的问题
 
@@ -25,10 +25,17 @@
 ┌──────────────────────────────────────────┐
 │ Room (zhijing.db)         运行时数据        │  可写，用户与云端产生
 │   kg_claim_state      命题探测状态          │
+│   kg_condition_probe  条件级探测记录        │
 │   kg_runtime_claim    云端/用户增量命题      │
 │   kg_claim_merge      同义合并映射          │
 └──────────────────────────────────────────┘
 ```
+
+**assets 里除了出版物还有两块「增补源」**：卡片前置关系与条件三元组（`triples`）都不是
+`build_graph.py` 的产物，而是模型抽取/人工撰写后固化的内容。它们放在
+`kg/data/source/deep_supplement.json`，由 `kg/src/export.py` 导出 assets 时合并。
+之所以不直接手改 `assets/kg/graph.json`：那条路径跑一次 `export`（包括 `kg/tests` 里的导出用例）
+就会被整份覆盖，「预测 → 揭示」会静默变空。
 
 **为什么不整份搬**：出厂命题是出版物而非用户数据；整份进库会引入「assets 与 Room 两份真相」
 和每版 APK 的迁移负担，而离线可读这件事 `assets` 已经做到了。
@@ -37,7 +44,7 @@
 
 一句话：**assets 管「可看」，Room 管「可变」。**
 
-## 三、三张表
+## 三、四张运行时表
 
 ### 3.1 `kg_claim_state` —— 探测状态（回写摘要）
 
@@ -122,6 +129,30 @@
 - 这四张表**无外键**，删除主题走 `deleteGraph(topicId)`；
 - `verified = 0` 表示正文由模型生成、未与原文核对，UI 需要区别提示。
 
+### 3.5 `kg_condition_probe` —— 条件级探测记录（v7 新增）
+
+`kg_claim_state` 只到**命题**粒度，回答不了「我把哪条边界想错了」。这条表细到
+**「条件 × 干预点」**，是「预测 → 揭示」的事实来源。
+
+| 列 | 说明 |
+|---|---|
+| `(triple_id, intervention_id)` | 联合主键；三元组来自 assets，干预点在三元组内唯一 |
+| `claim_id` | 所属命题，广度侧按命题聚合 |
+| `predicted_option` / `previous_predicted_option` | 最近一次选择 / 上一次选择（讲「原来猜 X，现在改成 Y」） |
+| `correct_option` | 真实后果（本地求值或预置答案） |
+| `matched` | 最近一次是否猜对 |
+| `attempts` / `wrong_attempts` | 作答次数 / 猜错次数（**答对不清零**） |
+| `last_probed_at` / `misconception` | 最近作答时间 / 误解摘要（答对不覆盖） |
+
+**只记条件级，不重复记命题级**：下钻面板里的判断题负责写 `kg_claim_state`；
+一次「预测 → 揭示」如果两边都写，同一道题会被算两次，置信度提前到顶。
+
+**回写走派生**：卡片上的「在『把输入最后一维 4 → 5』上错过 2 次」是渲染时按 `claimIds`
+现算的（`ConditionProbeRepository.summaries`），不存进图谱数据，也不显示掌握度百分比。
+
+**孤儿清理**：三元组在 assets、没有外键，图谱更新后调
+`pruneOrphans(aliveTripleIds)`；空列表直接返回 0（加载失败不能当「全部下架」）。
+
 ## 四、使用方式
 
 ```kotlin
@@ -149,6 +180,19 @@ val canonical = data.kgClaims.resolveClaimId(derivedId)
 
 // 图谱更新后清理孤儿状态
 data.kgStates.pruneOrphans(graph.claims.map { it.id })
+
+// 条件级：预测 → 揭示的每一次作答（只写这张表）
+val probe = data.kgConditionProbes.record(
+    tripleId = "tri.linear-in-dim.1",
+    interventionId = "inv.linear-in-x.4-to-5",
+    claimId = "clm.arch.ffn.linear-in-dim.4a3e",
+    predictedOption = "HOLDS",
+    correctOption = "FAILS",
+    misconception = "以为维度不等只会让结果变宽"
+)
+
+// 广度侧：卡片事实按命题现算（错过几次、哪条干预点）
+val facts = data.kgConditionProbes.summaries(card.claimIds)
 ```
 
 ## 五、几个刻意的取舍
@@ -160,12 +204,15 @@ data.kgStates.pruneOrphans(graph.claims.map { it.id })
 | 置信度存库而非现算 | 输入是 `correct/attempts`，若每次现算则两列就够；存下来的意义是允许未来换成加权模型而不必回填历史 |
 | `pruneOrphans(emptyList())` 不清空 | 空列表多半是加载图谱失败，误删会毁掉用户全部判断记录 |
 | 重复 ID 用 `IGNORE` 而非 `REPLACE` | 云端重复生成同一条时，不能把已确认的审核状态打回 pending |
+| 命题状态与条件记录分两张表 | 两个粒度回答两个问题：「掌握没有」与「错在哪」；合表后要么丢机制，要么为每个干预点复制一份命题状态 |
+| 条件级只留「上一格」预测 | 理解路径第一版是一条线，要的是改念前后对比；逐次日志会把表变成事件流，查询与清理成本都上一个量级 |
 
 ## 六、尚未做的部分
 
 - **去重算法本身**：`kg_claim_merge` 只提供存储与查询，`相似度 > 阈值 → 写入映射` 的调度逻辑待接入（建议放在内容解析管线里，复用本地 bge 向量）。
-- **图谱加载器**：从 `assets/kg/graph.json` 读出厂命题并与 Room 增量合并的 `GraphAssembler` 尚未实现，UI 侧目前仍按原方式读静态图。
-- **迁移**：`exportSchema = false`、`fallbackToDestructiveMigration()` 保持不变。当前是 v2 → v3 的整体弃库重建，开发期可接受；**上线前必须补 Migration**，否则用户升级会丢失全部判断状态。
+- **理解路径的分支树**：第一版只记一条线（一个干预点留最近一次 + 上一次预测），不做「同一条件多条改念路径」。
+- **`gradient` 类契约**：形状/值域/统计量已可在本地判定，梯度与语义仍只能预置答案。
+- **迁移**：`exportSchema = false`、`fallbackToDestructiveMigration()` 保持不变。v6 → v7（新增 `kg_condition_probe`）是一次整体弃库重建，开发期可接受；**上线前必须补 Migration**，否则用户升级会丢失全部判断状态与条件记录。
 
 ## 七、验证
 
@@ -173,6 +220,7 @@ data.kgStates.pruneOrphans(graph.claims.map { it.id })
 ./gradlew :data:testDebugUnitTest --tests "com.zhijing.data.knowledge.*"
 ```
 
-新增 21 个用例，覆盖：四态收敛边界、误解去重与截断、孤儿清理（含空列表保护）、
-候选不出现在广度视图、确认/否决流转、重复生成不覆盖审核状态、批量 ID 解析。
-`:data` 模块全量 60 个用例全部通过。
+覆盖：四态收敛边界、误解去重与截断、孤儿清理（含空列表保护）、
+候选不出现在广度视图、确认/否决流转、重复生成不覆盖审核状态、批量 ID 解析；
+条件级另有一组用例覆盖「重复作答累加」「答对后错过次数不清零」「按命题聚合去重」
+「上一格预测保留」「空存活列表不误删」。`:data` 模块全量用例通过。
