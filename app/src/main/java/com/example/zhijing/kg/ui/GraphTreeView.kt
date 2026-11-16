@@ -35,6 +35,8 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.zhijing.kg.MergedGraph
 import com.example.zhijing.kg.PrerequisiteSource
+import com.example.zhijing.kg.SkillProgress
 import com.example.zhijing.ui.theme.ZjSpace
 import kotlin.math.min
 
@@ -79,6 +82,13 @@ fun GraphTreeView(
     onNodeClick: (nodePath: String?) -> Unit,
     /** 当前选中的节点路径；选中后与它相连的线高亮、其余淡出。 */
     selectedNode: String?,
+    /**
+     * 卡片三态（已点亮 / 可学 / 未解锁）。
+     *
+     * 由宿主传入而不是在这里算：统计行上的「可学 N」「✓ x/y」用同一份结果，
+     * 两处各算一次迟早会出现数字对不上。
+     */
+    skill: SkillProgress.Result? = null,
     /** 搜索/切换视图时把某个节点移到视口中央；null 表示不主动移动视图。 */
     focusRequest: GraphFocusRequest? = null,
     /** 聚焦完成（或目标不在当前布局里）后回调，宿主应把请求清空。 */
@@ -100,6 +110,28 @@ fun GraphTreeView(
     }
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
+
+    // 宿主没传就自己算一份（预览/单测里方便）
+    val skillProgress = skill ?: remember(graph) { SkillProgress.of(graph) }
+
+    // 读屏：Canvas 本身没有节点语义，这里至少给出整体状态与当前选中项，
+    // 让 TalkBack 用户知道"图里有什么、我在哪"。
+    val treeDescription = remember(skillProgress, selectedNode) {
+        buildString {
+            append("结构图：共 ")
+            append(skillProgress.total)
+            append(" 张卡片，已点亮 ")
+            append(skillProgress.lit)
+            append("，现在能学 ")
+            append(skillProgress.ready)
+            append("，未解锁 ")
+            append(skillProgress.locked)
+            if (selectedNode != null) {
+                append("。已选中 ")
+                append(selectedNode)
+            }
+        }
+    }
 
     // 视图变换：
     // - scale 是**相对初始适配比例**的倍率（1.0 = 恰好放下全部内容）
@@ -188,6 +220,7 @@ fun GraphTreeView(
         Canvas(
             Modifier
                 .fillMaxSize()
+                .semantics { contentDescription = treeDescription }
                 // 尺寸回调：只在这里写 viewportPx，绘制回调不再写状态
                 .onSizeChanged { size ->
                     val next = Size(size.width.toFloat(), size.height.toFloat())
@@ -268,6 +301,7 @@ fun GraphTreeView(
                     density = density.density,
                     selectedNode = selectedNode,
                     relatedNodes = relatedNodes,
+                    skill = skillProgress,
                 )
             }
         }
@@ -574,6 +608,24 @@ private fun DrawScope.drawLines(
 }
 
 /**
+ * 卡片三态的配色。
+ *
+ * 绿=已点亮、蓝=现在能学、灰=未解锁：与依赖线的暗红/暖橙/蓝刻意分开一档饱和度，
+ * 免得用户把"节点边框的颜色"读成"线的颜色"。未解锁再用虚线框做第二重编码。
+ */
+internal object SkillVisual {
+    val lit = Color(0xFF27AE60)
+    val ready = Color(0xFF0984E3)
+    val locked = Color(0xFF9AA0A6)
+
+    fun color(state: SkillProgress.State): Color = when (state) {
+        SkillProgress.State.LIT -> lit
+        SkillProgress.State.READY -> ready
+        SkillProgress.State.LOCKED -> locked
+    }
+}
+
+/**
  * 依赖线的语义配色。
  *
  * 固定色值而不是主题色：这三条线是**语义编码**。主题色会随品牌色漂移，
@@ -690,7 +742,12 @@ private fun DrawScope.drawNodes(
     selectedNode: String?,
     /** 与选中节点有依赖/关联关系的节点：一起高亮，其余压暗。 */
     relatedNodes: Set<String> = emptySet(),
+    /** 卡片三态：节点边框与角标据此上色，图标做第二重编码（缩放后颜色不可靠）。 */
+    skill: SkillProgress.Result,
 ) {
+    // 未解锁的虚线框：颜色之外的第二重编码，色弱用户也能分辨
+    val lockDash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f), 0f)
+
     layout.nodes.forEach { node ->
         val topLeft = Offset(node.x, node.y)
         val size = Size(node.width, node.height)
@@ -705,38 +762,57 @@ private fun DrawScope.drawNodes(
         val hasContent = node.descendable
         val fillAlpha = if (hasContent) 0.14f else 0.05f
 
+        val nodeState = skill.stateOfCards(node.cardIds)
+        val stateColor = nodeState?.let { SkillVisual.color(it) }
+        val icon = when (nodeState) {
+            SkillProgress.State.LIT -> "✓"
+            SkillProgress.State.READY -> "＋"
+            SkillProgress.State.LOCKED -> "□"
+            null -> null
+        }
+
         drawRoundRect(
             color = when {
                 isSelected -> colors.primary.copy(alpha = 0.28f)
                 // 相关卡片给一层很浅的底：既区别于背景，又不抢选中卡片的焦点
                 isRelated -> colors.primary.copy(alpha = 0.12f)
+                // 有状态的卡片用状态色打底，未选中时整张图就是"三态地图"
+                stateColor != null -> stateColor.copy(alpha = if (dimmed) 0.04f else 0.10f)
                 else -> colors.primary.copy(alpha = if (dimmed) fillAlpha * 0.5f else fillAlpha)
             },
             topLeft = topLeft,
             size = size,
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(node.height / 2)
         )
+
+        val borderColor = when {
+            isSelected -> colors.primary
+            isRelated -> colors.primary.copy(alpha = 0.85f)
+            stateColor != null -> stateColor.copy(alpha = if (dimmed) 0.3f else 0.9f)
+            hasContent -> colors.primary.copy(alpha = if (dimmed) 0.25f else 0.55f)
+            else -> colors.outline.copy(alpha = if (dimmed) 0.25f else 0.7f)
+        }
+        val borderWidth = when {
+            isSelected -> 2.2f
+            isRelated -> 1.8f
+            nodeState != null -> 1.6f
+            hasContent -> 1.2f
+            else -> 1f
+        }
         drawRoundRect(
-            color = when {
-                isSelected -> colors.primary
-                isRelated -> colors.primary.copy(alpha = 0.85f)
-                hasContent -> colors.primary.copy(alpha = if (dimmed) 0.25f else 0.55f)
-                else -> colors.outline.copy(alpha = if (dimmed) 0.25f else 0.7f)
-            },
+            color = borderColor,
             topLeft = topLeft,
             size = size,
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(node.height / 2),
-            style = Stroke(
-                width = when {
-                    isSelected -> 2.2f
-                    isRelated -> 1.8f
-                    hasContent -> 1.2f
-                    else -> 1f
-                }
-            )
+            style = if (nodeState == SkillProgress.State.LOCKED && !isSelected) {
+                Stroke(width = borderWidth, pathEffect = lockDash)
+            } else {
+                Stroke(width = borderWidth)
+            }
         )
 
-        // 文本：宽度约束用像素（= dp × density）
+        // 文本：宽度约束用像素（= dp × density）。
+        // 有状态图标时右侧让出 18dp，否则图标会压在标题最后一个字上。
         val textLayout = measurer.measure(
             text = node.title,
             style = TextStyle(
@@ -750,7 +826,8 @@ private fun DrawScope.drawNodes(
             maxLines = 2,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             constraints = androidx.compose.ui.unit.Constraints(
-                maxWidth = ((node.width - 12f) * density).toInt().coerceAtLeast(1)
+                maxWidth = ((node.width - (if (icon != null) 30f else 12f)) * density)
+                    .toInt().coerceAtLeast(1)
             ),
         )
         // 像素尺寸换回 dp 以定位
@@ -764,6 +841,28 @@ private fun DrawScope.drawNodes(
                 textLayoutResult = textLayout,
                 topLeft = Offset(textX * density, textY * density)
             )
+        }
+
+        // 三态图标：节点缩小后颜色先失效，图标是最后的兜底编码
+        if (icon != null && stateColor != null) {
+            val iconLayout = measurer.measure(
+                text = icon,
+                style = TextStyle(
+                    color = stateColor.copy(alpha = if (dimmed) 0.35f else 1f),
+                    fontSize = 11.sp,
+                ),
+            )
+            val iconW = iconLayout.size.width / density
+            val iconH = iconLayout.size.height / density
+            withTransform({ scale(1f / density, 1f / density, Offset.Zero) }) {
+                drawText(
+                    textLayoutResult = iconLayout,
+                    topLeft = Offset(
+                        (node.x + node.width - iconW - 6f) * density,
+                        (node.y + (node.height - iconH) / 2f) * density,
+                    ),
+                )
+            }
         }
 
         // 右上角命题数圆标

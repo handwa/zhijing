@@ -48,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphOutlineNode
 import com.example.zhijing.kg.MergedGraph
+import com.example.zhijing.kg.SkillProgress
 import com.example.zhijing.kg.depth.ConditionProbeSession
 import com.example.zhijing.ui.theme.ZjRadius
 import com.example.zhijing.ui.theme.ZjSpace
@@ -120,6 +122,9 @@ internal fun GraphScreen(
     // token 递增，保证「同一个节点连搜两次」也能重新定位。
     var focusRequest by remember { mutableStateOf<GraphFocusRequest?>(null) }
     var focusToken by remember { mutableLongStateOf(0L) }
+    // 「现在能学」与三态分布：两段式（摘要 chip → 底部面板），不做常驻侧栏
+    var showReadySheet by remember { mutableStateOf(false) }
+    var showProgressSheet by remember { mutableStateOf(false) }
 
     if (loading || graph == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -127,6 +132,10 @@ internal fun GraphScreen(
         }
         return
     }
+
+    // 卡片三态：纯派生，不存表（见 SkillProgress 的说明）。
+    // 统计行与结构图共用这一份结果，避免两处各算一次后数字对不上。
+    val skill = remember(graph) { SkillProgress.of(graph) }
 
     // 大纲筛选在 GraphCardList 内部完成（它才是真正渲染卡片的地方）。
     // 这里原来有一份同样的 visibleCards，筛选修好后它就没人用了；
@@ -183,7 +192,15 @@ internal fun GraphScreen(
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Default.Settings, contentDescription = "设置")
             }
-            StatusSummaryChips(graph)
+            StatusSummaryChips(
+                graph = graph,
+                skill = skill,
+                // 窄屏（<400dp）只保留两个可执行入口：四态计数在进度面板里也有，
+                // 但"能学几张、亮了几张"是唯一需要常驻的信息。
+                compact = LocalConfiguration.current.screenWidthDp < 400,
+                onOpenReady = { showReadySheet = true },
+                onOpenProgress = { showProgressSheet = true },
+            )
         }
 
         // 结构图：与卡片流互斥呈现
@@ -196,6 +213,7 @@ internal fun GraphScreen(
                     selectedNodePath = if (path == null || selectedNodePath == path) null else path
                 },
                 selectedNode = selectedNodePath,
+                skill = skill,
                 focusRequest = focusRequest,
                 onFocusConsumed = { focusRequest = null },
                 modifier = Modifier.weight(1f),
@@ -236,6 +254,28 @@ internal fun GraphScreen(
                 claimIndex = 0
             },
         )
+    }
+
+    // ---- 现在能学：底部面板（与卡片详情同一套两段式）----
+    if (showReadySheet) {
+        ReadySheet(
+            entries = skill.readyCards.mapNotNull { progress ->
+                graph.cards.firstOrNull { it.id == progress.cardId }?.let { progress to it }
+            },
+            onDismiss = { showReadySheet = false },
+            onPick = { card ->
+                showReadySheet = false
+                // 与搜索命中同一条定位链路：切结构图 + 设为选中 + 居中
+                viewMode = GraphViewMode.TREE
+                selectedNodePath = card.outlinePath
+                focusRequest = GraphFocusRequest(card.outlinePath, ++focusToken)
+            },
+        )
+    }
+
+    // ---- 三态分布：同一面板形态，纯计数 ----
+    if (showProgressSheet) {
+        ProgressSheet(graph = graph, skill = skill, onDismiss = { showProgressSheet = false })
     }
 
     // ---- 深度下钻：覆盖层（两种视图共用，不是并列入口）----
@@ -586,19 +626,235 @@ private enum class GraphViewMode { CARDS, TREE }
  * 这里只给四态计数，点击不筛选（筛选交给大纲 chips），纯作状态总览。
  */
 @Composable
-private fun StatusSummaryChips(graph: MergedGraph) {
+private fun StatusSummaryChips(
+    graph: MergedGraph,
+    skill: SkillProgress.Result,
+    compact: Boolean,
+    onOpenReady: () -> Unit,
+    onOpenProgress: () -> Unit,
+) {
     val summary = graph.statusSummary
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(ProbeStatus.CONFUSED, ProbeStatus.UNPROBED).forEach { status ->
-            val count = summary[status] ?: 0
-            if (count > 0) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!compact) {
+            listOf(ProbeStatus.CONFUSED, ProbeStatus.UNPROBED).forEach { status ->
+                val count = summary[status] ?: 0
+                if (count > 0) {
+                    Text(
+                        text = "${StatusVisual.label(status)} $count",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = StatusVisual.color(status),
+                    )
+                }
+            }
+        }
+        // 「可学 N」：这是"我现在能做什么"的入口，比"还剩多少没探测"更可执行
+        if (skill.ready > 0) {
+            Text(
+                text = "可学 ${skill.ready}",
+                style = MaterialTheme.typography.labelSmall,
+                color = SkillVisual.ready,
+                modifier = Modifier.clickable(onClick = onOpenReady),
+            )
+        }
+        // 进度只给"已经亮了几个"，不做百分比条（会让人以为刷满就掌握）
+        Text(
+            text = "✓ ${skill.lit}/${skill.total}",
+            style = MaterialTheme.typography.labelSmall,
+            color = SkillVisual.lit,
+            modifier = Modifier.clickable(onClick = onOpenProgress),
+        )
+    }
+}
+
+/**
+ * 「现在能学」底部面板。
+ *
+ * 排序不是按标题、也不是按章节，而是按**解锁数量**：同样都能学，先学解锁多的那张，
+ * 后面的路才会变短。这是参考项目"后续 44"那个标记的唯一用途 —— 排序，不是评分。
+ */
+@Composable
+private fun ReadySheet(
+    entries: List<Pair<SkillProgress.CardProgress, GraphCard>>,
+    onDismiss: () -> Unit,
+    onPick: (GraphCard) -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.32f))
+                .clickable(
+                    onClick = onDismiss,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                )
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = 520.dp),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(Modifier.padding(bottom = ZjSpace.md)) {
+                SheetHandle()
                 Text(
-                    text = "${StatusVisual.label(status)} $count",
+                    text = "现在能学 · ${entries.size}",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = ZjSpace.pageHorizontal),
+                )
+                Spacer(Modifier.height(ZjSpace.xs))
+                Text(
+                    text = "前置都已点亮。按解锁数量排序，先学解锁多的。",
                     style = MaterialTheme.typography.labelSmall,
-                    color = StatusVisual.color(status),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = ZjSpace.pageHorizontal),
+                )
+                Spacer(Modifier.height(ZjSpace.sm))
+                if (entries.isEmpty()) {
+                    Text(
+                        text = "暂时没有可学的卡片 —— 先把已有的前置点亮。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(ZjSpace.pageHorizontal),
+                    )
+                } else {
+                    LazyColumn {
+                        items(entries) { (progress, card) ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPick(card) }
+                                    .padding(
+                                        horizontal = ZjSpace.pageHorizontal,
+                                        vertical = ZjSpace.sm,
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(card.title, style = MaterialTheme.typography.bodyMedium)
+                                    if (card.summary.isNotBlank()) {
+                                        Text(
+                                            text = card.summary,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                                if (progress.downstreamCount > 0) {
+                                    Text(
+                                        text = "后续 ${progress.downstreamCount}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SkillVisual.ready,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 三态分布明细。刻意只给计数，不给百分比。 */
+@Composable
+private fun ProgressSheet(
+    graph: MergedGraph,
+    skill: SkillProgress.Result,
+    onDismiss: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.32f))
+                .clickable(
+                    onClick = onDismiss,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                )
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            Column(Modifier.padding(bottom = ZjSpace.md)) {
+                SheetHandle()
+                Text(
+                    text = "三态分布",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = ZjSpace.pageHorizontal),
+                )
+                Spacer(Modifier.height(ZjSpace.sm))
+                ProgressRow("已点亮", skill.lit, SkillVisual.lit)
+                ProgressRow("现在能学", skill.ready, SkillVisual.ready)
+                ProgressRow("未解锁", skill.locked, SkillVisual.locked)
+                // 窄屏时顶栏不显示四态计数，这里补上 —— 信息不丢，只是不常驻
+                val summary = graph.statusSummary
+                ProbeStatus.CONFUSED.let {
+                    ProgressRow(
+                        StatusVisual.label(it),
+                        summary[it] ?: 0,
+                        StatusVisual.color(it),
+                    )
+                }
+                ProbeStatus.UNPROBED.let {
+                    ProgressRow(
+                        StatusVisual.label(it),
+                        summary[it] ?: 0,
+                        StatusVisual.color(it),
+                    )
+                }
+                Spacer(Modifier.height(ZjSpace.sm))
+                Text(
+                    // 门控只是展示：不阻止点击未解锁卡片看内容
+                    text = "未解锁只是「前置还没点亮」，卡片内容仍然可以看。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = ZjSpace.pageHorizontal),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ProgressRow(label: String, count: Int, color: Color) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = ZjSpace.pageHorizontal, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text("$count", style = MaterialTheme.typography.bodyMedium, color = color)
+    }
+}
+
+/** 底部面板顶部的拖拽条：与卡片详情面板保持同一视觉。 */
+@Composable
+private fun SheetHandle() {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .padding(top = ZjSpace.sm, bottom = ZjSpace.xs)
+                .width(36.dp)
+                .height(4.dp)
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    RoundedCornerShape(2.dp),
+                )
+        )
     }
 }
 
