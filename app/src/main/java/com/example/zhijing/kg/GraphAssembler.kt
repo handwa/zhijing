@@ -80,10 +80,21 @@ class GraphAssembler(
         } else {
             emptyList()
         }
-        val claimIds = bundled.claims.map { it.id } + runtimeClaims.map { it.claimId }
-        val states = data.kgStates.getStates(claimIds)
         // 生成图谱与出厂图谱并列呈现，各自成树
         val generated = data.kgGenerated.listGraphs()
+
+        // 状态必须**按 id 全查**：生成图谱的命题 id 不在 assets 里。
+        // 漏掉它们时 `getStates` 只会返回默认的 UNPROBED —— 答过的题永远点不亮，
+        // 下游也永远不解锁（这就是「生成图谱答完没反应」的根因）。
+        val generatedClaimIds = if (generated.isEmpty()) {
+            emptyList()
+        } else {
+            data.kgGenerated.allClaims().map { it.claimId }
+        }
+        val claimIds = bundled.claims.map { it.id } +
+            runtimeClaims.map { it.claimId } +
+            generatedClaimIds
+        val states = data.kgStates.getStates(claimIds)
         return merge(bundled, runtimeClaims, states, generated)
     }
 

@@ -31,6 +31,42 @@ class SkillProgressTest {
         assertEquals(SkillProgress.State.LIT, result.stateOf("a"))
     }
 
+    /**
+     * 出厂图谱的卡片有「预测 → 揭示」：用户可能只拨条件、不做判断题。
+     * 只认命题状态时，这类卡永远点不亮 —— 用户看到的是「我答了但没反应」。
+     */
+    @Test
+    fun `只拨对条件不做判断题也算练过`() {
+        val result = SkillProgress.of(
+            graph(
+                listOf(
+                    cardWithStatuses(
+                        "a",
+                        listOf(ProbeStatus.UNPROBED),
+                        steps = listOf(pathStep(matched = true))
+                    )
+                )
+            )
+        )
+        assertEquals(SkillProgress.State.LIT, result.stateOf("a"))
+    }
+
+    @Test
+    fun `条件拨错不算练过`() {
+        val result = SkillProgress.of(
+            graph(
+                listOf(
+                    cardWithStatuses(
+                        "a",
+                        listOf(ProbeStatus.UNPROBED),
+                        steps = listOf(pathStep(matched = false))
+                    )
+                )
+            )
+        )
+        assertEquals(SkillProgress.State.READY, result.stateOf("a"))
+    }
+
     @Test
     fun `有易混淆的命题挡住点亮`() {
         val result = SkillProgress.of(
@@ -222,6 +258,7 @@ class SkillProgressTest {
         id: String,
         statuses: List<ProbeStatus>,
         prerequisites: List<PrerequisiteLink> = emptyList(),
+        steps: List<ConditionPathStep> = emptyList(),
     ) = GraphCard(
         id = id,
         title = id,
@@ -229,12 +266,28 @@ class SkillProgressTest {
         summary = "",
         body = "",
         claims = statuses.mapIndexed { index, status ->
-            claim(id = "$id.c$index", cardId = id, status = status)
+            claim(id = "$id.c$index", cardId = id, status = status, steps = steps)
         },
         prerequisites = prerequisites,
     )
 
-    private fun claim(id: String, cardId: String, status: ProbeStatus) = GraphClaim(
+    private fun pathStep(matched: Boolean) = ConditionPathStep(
+        interventionId = "inv.test",
+        action = "把输入最后一维 4 改成 5",
+        statement = "最后一维要对齐",
+        predicted = "仍然成立",
+        actual = "不再成立",
+        matched = matched,
+        attempts = 1,
+        wrongAttempts = if (matched) 0 else 1,
+    )
+
+    private fun claim(
+        id: String,
+        cardId: String,
+        status: ProbeStatus,
+        steps: List<ConditionPathStep> = emptyList(),
+    ) = GraphClaim(
         id = id,
         statement = id,
         expected = true,
@@ -250,5 +303,6 @@ class SkillProgressTest {
         probe = ClaimProbeState(claimId = id, probeStatus = status),
         source = ClaimSource.BUNDLED,
         bundled = true,
+        conditionPath = steps,
     )
 }

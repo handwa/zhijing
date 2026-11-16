@@ -9,6 +9,7 @@ import com.zhijing.data.model.GeneratedCard
 import com.zhijing.data.model.GeneratedClaim
 import com.zhijing.data.model.GeneratedGraph
 import com.zhijing.data.model.GeneratedOutlineNode
+import com.zhijing.data.model.GeneratedPrerequisite
 import com.zhijing.data.model.ProbeStatus
 import com.zhijing.data.model.RuntimeClaim
 import java.io.File
@@ -515,6 +516,84 @@ class GraphAssemblerTest {
         assertEquals(ClaimSource.CLOUD, claim.source)
         // 必须进全图索引，否则状态汇总与 ID 解析看不到它
         assertSame(claim, merged.claims.getValue(claimId))
+    }
+
+    @Test
+    fun `出厂卡片答完一轮即点亮并解锁下游`() = runBlocking {
+        // 1.1 有两条命题；一轮下钻每条只判一次，收敛结果是 VERIFIED
+        listOf(
+            "clm.arch.ffn.linear-in-dim.4a3e",
+            "clm.arch.ffn.linear-param-batch.2fe7"
+        ).forEach { id ->
+            data.kgStates.recordJudgement(id, correct = true, misconception = null)
+        }
+
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val skill = SkillProgress.of(merged)
+
+        // 答过一轮就该点亮，否则全图卡在 1.1（第一版实测到的 bug）
+        assertEquals(SkillProgress.State.LIT, skill.stateOf("crd.s1-1-linear"))
+        // 下游从「未解锁」变「现在能学」
+        assertEquals(SkillProgress.State.READY, skill.stateOf("crd.s1-2-relu"))
+    }
+
+    @Test
+    fun `生成图谱的命题作答后点亮并解锁下游`() = runBlocking {
+        val topicId = "ut-gen-ready"
+        val cardA = "crd.gen.$topicId.0"
+        val cardB = "crd.gen.$topicId.1"
+        val claimId = "clm.gen.test.ready"
+
+        data.kgGenerated.save(
+            meta = GeneratedGraph(
+                topicId = topicId,
+                title = "点亮测试",
+                createdTime = 1L,
+                providerId = "deepseek",
+                blockCount = 2,
+                verified = false
+            ),
+            outline = listOf(
+                GeneratedOutlineNode(topicId, path = "ch1", parentPath = null, title = "第一章", level = 1, order = 0)
+            ),
+            cards = listOf(
+                GeneratedCard(topicId, cardA, "ch1", "块A", "", "正文A", 0),
+                GeneratedCard(topicId, cardB, "ch1", "块B", "", "正文B", 1)
+            ),
+            prerequisites = listOf(
+                GeneratedPrerequisite(topicId, fromCardId = cardA, toCardId = cardB, kind = "required")
+            ),
+            claims = listOf(
+                GeneratedClaim(
+                    topicId = topicId,
+                    claimId = claimId,
+                    cardId = cardA,
+                    outlinePath = "ch1",
+                    statement = "矩阵加法满足交换律",
+                    expected = true
+                ),
+                // B 也要有自己的命题：没有命题的卡在判定里等同「无需学习」，
+                // 那样 B 会直接算点亮，测不出「解锁」这一步
+                GeneratedClaim(
+                    topicId = topicId,
+                    claimId = "clm.gen.test.downstream",
+                    cardId = cardB,
+                    outlinePath = "ch1",
+                    statement = "矩阵乘法不满足交换律",
+                    expected = true
+                )
+            )
+        )
+
+        // 答对生成命题的唯一一条
+        data.kgStates.recordJudgement(claimId, correct = true, misconception = null)
+
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val skill = SkillProgress.of(merged)
+
+        // 根因回归：load() 只按出厂命题 id 查状态时，生成命题永远停留在 UNPROBED
+        assertEquals(SkillProgress.State.LIT, skill.stateOf(cardA))
+        assertEquals(SkillProgress.State.READY, skill.stateOf(cardB))
     }
 
     @Test

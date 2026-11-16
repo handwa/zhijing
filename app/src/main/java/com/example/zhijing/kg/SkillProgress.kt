@@ -166,7 +166,15 @@ object SkillProgress {
         )
     }
 
-    /** 一张卡片是否已点亮：答过一遍且没有挂着没搞懂的。 */
+    /**
+     * 一张卡片是否已点亮：练过一遍且没有挂着没搞懂的。
+     *
+     * 「练过」有两种合法形态，缺一不可：
+     * 1. 命题判断题判对过（`VERIFIED` / `MASTERED`）；
+     * 2. **该命题下的干预点拨对过**（`conditionPath.matched`）——
+     *    有「预测 → 揭示」的卡片（出厂图谱）用户可能只拨条件、没做判断题，
+     *    这时若只认命题状态，卡片会永远点不亮，用户会以为答了没反应。
+     */
     private fun isLit(card: GraphCard): Boolean {
         // 没有命题的组织性卡片：没有可判定内容，视为已点亮，避免把后面全锁死
         if (card.claims.isEmpty()) return true
@@ -174,11 +182,12 @@ object SkillProgress {
         // 有易混淆就先别点亮：用户刚撞错过，这时候告诉他能往下走是误导
         if (card.claims.any { it.probe.probeStatus == ProbeStatus.CONFUSED }) return false
 
-        val probed = card.claims.count {
-            it.probe.probeStatus == ProbeStatus.VERIFIED ||
-                it.probe.probeStatus == ProbeStatus.MASTERED
+        val practiced = card.claims.count { claim ->
+            claim.probe.probeStatus == ProbeStatus.VERIFIED ||
+                claim.probe.probeStatus == ProbeStatus.MASTERED ||
+                claim.conditionPath.any { it.matched }
         }
         val needed = ceil(card.claims.size * LIT_PROBED_RATIO).toInt().coerceAtLeast(1)
-        return probed >= needed
+        return practiced >= needed
     }
 }
