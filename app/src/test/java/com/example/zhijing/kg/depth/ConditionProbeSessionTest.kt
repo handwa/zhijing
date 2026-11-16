@@ -88,6 +88,32 @@ class ConditionProbeSessionTest {
         assertFalse(session.hasQuestions)
     }
 
+    /**
+     * 重新下钻时不再重问已经拨过的干预点。
+     *
+     * 不跳过的话，一张有 5 个干预点的卡每次进来都要先重答 5 道，才轮得到判断题面板 ——
+     * 用户会认为「我明明答过了，怎么还是没反应」。
+     */
+    @Test
+    fun forCardSkipsAlreadyProbedInterventions() {
+        val triples = listOf(
+            triple("tri.a", interventions = listOf(intervention("inv.1"), intervention("inv.2")))
+        )
+
+        assertEquals(2, ConditionProbeSession.forCard(triples, "crd.a").total)
+
+        val resumed = ConditionProbeSession.forCard(triples, "crd.a", setOf("inv.1"))
+        assertEquals(1, resumed.total)
+        // 只剩没拨过的那道，题号从 1 重新排
+        assertEquals("inv.2", resumed.current?.interventionId)
+        assertEquals(1, resumed.current?.ordinal)
+
+        // 全拨过：直接 Done，UI 会显示判断题面板
+        val done = ConditionProbeSession.forCard(triples, "crd.a", setOf("inv.1", "inv.2"))
+        assertEquals(0, done.total)
+        assertEquals(ConditionProbeSession.Step.Done, done.step)
+    }
+
     @Test
     fun questionsAreOrderedDeterministically() {
         val b = triple(id = "tri.b", interventions = listOf(intervention("inv.1")))

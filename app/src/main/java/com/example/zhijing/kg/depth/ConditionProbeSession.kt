@@ -166,19 +166,34 @@ internal class ConditionProbeSession private constructor(
 
     companion object {
 
-        /** 某张卡片下所有合格三元组的题。UI 从卡片下钻时用这个。 */
-        fun forCard(triples: List<ConditionTriple>, cardId: String): ConditionProbeSession =
-            create(triples.filter { it.cardId == cardId })
+        /**
+         * 某张卡片下所有合格三元组的题。UI 从卡片下钻时用这个。
+         *
+         * @param skipInterventionIds 已经拨过的干预点：重新下钻时不再问第二遍。
+         *        不跳过的话，一张有 5 个干预点的卡每次进来都要先把 5 道题重答一遍
+         *        才能看到判断题面板 —— 用户会以为「答了没反应」。
+         */
+        fun forCard(
+            triples: List<ConditionTriple>,
+            cardId: String,
+            skipInterventionIds: Set<String> = emptySet(),
+        ): ConditionProbeSession =
+            create(triples.filter { it.cardId == cardId }, skipInterventionIds)
 
         /** 某条命题下所有合格三元组的题。 */
         fun forClaim(triples: List<ConditionTriple>, claimId: String): ConditionProbeSession =
             create(triples.filter { it.claimId == claimId })
 
-        private fun create(triples: List<ConditionTriple>): ConditionProbeSession {
+        private fun create(
+            triples: List<ConditionTriple>,
+            skipInterventionIds: Set<String> = emptySet(),
+        ): ConditionProbeSession {
             val pairs = triples
                 // 入库三门槛：机制为空、没有干预、干预没有误判库的，不进交互
                 .filter { it.isValid }
                 .flatMap { triple -> triple.interventions.map { intervention -> triple to intervention } }
+                // 已经拨过的干预点不再出题（题目顺序与"第几题"都按剩下的内容重算）
+                .filter { (_, intervention) -> intervention.id !in skipInterventionIds }
                 // 固定顺序，保证同一份数据每次出题一致（也便于单测）
                 .sortedWith(compareBy({ it.first.id }, { it.second.id }))
 

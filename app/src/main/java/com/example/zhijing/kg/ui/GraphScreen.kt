@@ -531,8 +531,20 @@ private fun DescendDialog(
 
     // 深度 probe：三元组存在时先走「预测→揭示」，走完再回到原来的判断题面板。
     // 没有 triples 的卡片行为完全不变（probe.hasQuestions == false）。
-    val probe = remember(card.id, graph.triples) {
-        ConditionProbeSession.forCard(graph.triples, card.id).also { session ->
+    // 已经拨过的干预点：重新下钻时跳过，直接进入判断题。
+    // 从 conditionPath 反推（每次作答都会留一步），不额外查库。
+    val answeredInterventions = remember(graph) {
+        graph.claims.values
+            .flatMap { it.conditionPath }
+            .map { it.interventionId }
+            .toSet()
+    }
+    val probe = remember(card.id, graph.triples, answeredInterventions) {
+        ConditionProbeSession.forCard(
+            triples = graph.triples,
+            cardId = card.id,
+            skipInterventionIds = answeredInterventions,
+        ).also { session ->
             // 出题数为 0 是排查「为什么没出题」的第一手信息（旧包 / 卡片 id 对不上 / 数据没过门槛）
             android.util.Log.i(
                 "GraphScreen",
