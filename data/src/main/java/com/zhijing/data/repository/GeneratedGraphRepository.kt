@@ -3,10 +3,12 @@ package com.zhijing.data.repository
 import com.zhijing.data.ZhijingDatabase
 import com.zhijing.data.dao.KgGeneratedGraphDao
 import com.zhijing.data.entity.KgGeneratedCardEntity
+import com.zhijing.data.entity.KgGeneratedClaimEntity
 import com.zhijing.data.entity.KgGeneratedGraphEntity
 import com.zhijing.data.entity.KgGeneratedOutlineEntity
 import com.zhijing.data.entity.KgGeneratedPrerequisiteEntity
 import com.zhijing.data.model.GeneratedCard
+import com.zhijing.data.model.GeneratedClaim
 import com.zhijing.data.model.GeneratedGraph
 import com.zhijing.data.model.GeneratedOutlineNode
 import com.zhijing.data.model.GeneratedPrerequisite
@@ -43,7 +45,9 @@ interface GeneratedGraphRepository {
         meta: GeneratedGraph,
         outline: List<GeneratedOutlineNode>,
         cards: List<GeneratedCard>,
-        prerequisites: List<GeneratedPrerequisite> = emptyList()
+        prerequisites: List<GeneratedPrerequisite> = emptyList(),
+        /** 该主题的命题；与卡片同进同出，重复生成整份覆盖。 */
+        claims: List<GeneratedClaim> = emptyList()
     )
 
     suspend fun outlineOf(topicId: String): List<GeneratedOutlineNode>
@@ -63,6 +67,12 @@ interface GeneratedGraphRepository {
 
     /** 全部生成图谱的大纲节点，供合并渲染。 */
     suspend fun allOutline(): List<GeneratedOutlineNode>
+
+    /** 某主题的命题（下钻用）。 */
+    suspend fun claimsOf(topicId: String): List<GeneratedClaim>
+
+    /** 全部生成图谱的命题，供合并渲染时挂到卡片上。 */
+    suspend fun allClaims(): List<GeneratedClaim>
 }
 
 internal class DefaultGeneratedGraphRepository(
@@ -84,13 +94,15 @@ internal class DefaultGeneratedGraphRepository(
         meta: GeneratedGraph,
         outline: List<GeneratedOutlineNode>,
         cards: List<GeneratedCard>,
-        prerequisites: List<GeneratedPrerequisite>
+        prerequisites: List<GeneratedPrerequisite>,
+        claims: List<GeneratedClaim>
     ) {
         dao.replaceGraph(
             meta = meta.toEntity(),
             outline = outline.map { it.toEntity() },
             cards = cards.map { it.toEntity() },
-            prerequisites = prerequisites.map { it.toEntity() }
+            prerequisites = prerequisites.map { it.toEntity() },
+            claims = claims.map { it.toEntity() }
         )
     }
 
@@ -115,6 +127,12 @@ internal class DefaultGeneratedGraphRepository(
 
     override suspend fun allOutline(): List<GeneratedOutlineNode> =
         dao.allOutline().map { it.toDomain() }
+
+    override suspend fun claimsOf(topicId: String): List<GeneratedClaim> =
+        dao.claimsOf(topicId).map { it.toDomain() }
+
+    override suspend fun allClaims(): List<GeneratedClaim> =
+        dao.allClaims().map { it.toDomain() }
 }
 
 /* ------------------------------------------------------------ 映射 */
@@ -185,6 +203,34 @@ private fun KgGeneratedPrerequisiteEntity.toDomain(): GeneratedPrerequisite = Ge
     toCardId = toCardId,
     kind = kind,
     why = why
+)
+
+private fun KgGeneratedClaimEntity.toDomain(): GeneratedClaim = GeneratedClaim(
+    topicId = topicId,
+    claimId = claimId,
+    cardId = cardId,
+    outlinePath = outlinePath,
+    statement = statement,
+    expected = expected,
+    conditions = conditions,
+    explanation = explanation,
+    misconception = misconception,
+    evidence = evidence,
+    order = order
+)
+
+private fun GeneratedClaim.toEntity(): KgGeneratedClaimEntity = KgGeneratedClaimEntity(
+    topicId = topicId,
+    claimId = claimId,
+    cardId = cardId,
+    outlinePath = outlinePath,
+    statement = statement,
+    expected = expected,
+    conditions = conditions,
+    explanation = explanation,
+    misconception = misconception,
+    evidence = evidence,
+    order = order
 )
 
 private fun GeneratedPrerequisite.toEntity(): KgGeneratedPrerequisiteEntity =

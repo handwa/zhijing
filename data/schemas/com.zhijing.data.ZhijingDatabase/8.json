@@ -1,0 +1,1724 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 8,
+    "identityHash": "1ae5709f8993c68f66424c50e81d32cc",
+    "entities": [
+      {
+        "tableName": "content_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `raw_text` TEXT NOT NULL, `source` TEXT, `import_time` INTEGER NOT NULL, `analysis_json` TEXT, `analysis_status` INTEGER NOT NULL DEFAULT 0, `embedding_vector` BLOB, `embedding_status` INTEGER NOT NULL DEFAULT 0, `remark` TEXT, `import_channel` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawText",
+            "columnName": "raw_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "importTime",
+            "columnName": "import_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "analysisJson",
+            "columnName": "analysis_json",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "analysisStatus",
+            "columnName": "analysis_status",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "embeddingVector",
+            "columnName": "embedding_vector",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "embeddingStatus",
+            "columnName": "embedding_status",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "remark",
+            "columnName": "remark",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "importChannel",
+            "columnName": "import_channel",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_content_table_import_time",
+            "unique": false,
+            "columnNames": [
+              "import_time"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_content_table_import_time` ON `${TABLE_NAME}` (`import_time`)"
+          },
+          {
+            "name": "index_content_table_analysis_status",
+            "unique": false,
+            "columnNames": [
+              "analysis_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_content_table_analysis_status` ON `${TABLE_NAME}` (`analysis_status`)"
+          },
+          {
+            "name": "index_content_table_embedding_status",
+            "unique": false,
+            "columnNames": [
+              "embedding_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_content_table_embedding_status` ON `${TABLE_NAME}` (`embedding_status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "chunk_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `content_id` INTEGER NOT NULL, `chunk_index` INTEGER NOT NULL, `text` TEXT NOT NULL, `start_offset` INTEGER NOT NULL, `end_offset` INTEGER NOT NULL, `char_count` INTEGER NOT NULL, FOREIGN KEY(`content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "content_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chunkIndex",
+            "columnName": "chunk_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startOffset",
+            "columnName": "start_offset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endOffset",
+            "columnName": "end_offset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "charCount",
+            "columnName": "char_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_chunk_table_content_id",
+            "unique": false,
+            "columnNames": [
+              "content_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chunk_table_content_id` ON `${TABLE_NAME}` (`content_id`)"
+          },
+          {
+            "name": "index_chunk_table_content_id_chunk_index",
+            "unique": true,
+            "columnNames": [
+              "content_id",
+              "chunk_index"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_chunk_table_content_id_chunk_index` ON `${TABLE_NAME}` (`content_id`, `chunk_index`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "content_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "content_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "vector_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `owner_type` TEXT NOT NULL, `owner_id` INTEGER NOT NULL, `dim` INTEGER NOT NULL, `vector` BLOB NOT NULL, `model_id` TEXT NOT NULL, `created_time` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerType",
+            "columnName": "owner_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerId",
+            "columnName": "owner_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dim",
+            "columnName": "dim",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vector",
+            "columnName": "vector",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "model_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdTime",
+            "columnName": "created_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_vector_table_owner_type_owner_id",
+            "unique": true,
+            "columnNames": [
+              "owner_type",
+              "owner_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_vector_table_owner_type_owner_id` ON `${TABLE_NAME}` (`owner_type`, `owner_id`)"
+          },
+          {
+            "name": "index_vector_table_owner_type",
+            "unique": false,
+            "columnNames": [
+              "owner_type"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vector_table_owner_type` ON `${TABLE_NAME}` (`owner_type`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "conversation_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `system_prompt` TEXT NOT NULL, `digest` TEXT, `digest_up_to_seq` INTEGER NOT NULL DEFAULT 0, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "systemPrompt",
+            "columnName": "system_prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "digest",
+            "columnName": "digest",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "digestUpToSeq",
+            "columnName": "digest_up_to_seq",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "message_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `conversation_id` INTEGER NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `token_count` INTEGER NOT NULL, `seq` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, FOREIGN KEY(`conversation_id`) REFERENCES `conversation_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversation_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tokenCount",
+            "columnName": "token_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_message_table_conversation_id",
+            "unique": false,
+            "columnNames": [
+              "conversation_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_message_table_conversation_id` ON `${TABLE_NAME}` (`conversation_id`)"
+          },
+          {
+            "name": "index_message_table_conversation_id_seq",
+            "unique": true,
+            "columnNames": [
+              "conversation_id",
+              "seq"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_message_table_conversation_id_seq` ON `${TABLE_NAME}` (`conversation_id`, `seq`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "conversation_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversation_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "association_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `source_content_id` INTEGER NOT NULL, `target_content_id` INTEGER NOT NULL, `similarity_score` REAL NOT NULL, `shared_topics` TEXT, `evidence_snippet` TEXT, `feedback` INTEGER NOT NULL DEFAULT 0, `weight` REAL NOT NULL DEFAULT 0, FOREIGN KEY(`source_content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`target_content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceContentId",
+            "columnName": "source_content_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetContentId",
+            "columnName": "target_content_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "similarityScore",
+            "columnName": "similarity_score",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sharedTopics",
+            "columnName": "shared_topics",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "evidenceSnippet",
+            "columnName": "evidence_snippet",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "feedback",
+            "columnName": "feedback",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "weight",
+            "columnName": "weight",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_association_table_source_content_id",
+            "unique": false,
+            "columnNames": [
+              "source_content_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_association_table_source_content_id` ON `${TABLE_NAME}` (`source_content_id`)"
+          },
+          {
+            "name": "index_association_table_target_content_id",
+            "unique": false,
+            "columnNames": [
+              "target_content_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_association_table_target_content_id` ON `${TABLE_NAME}` (`target_content_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "content_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "source_content_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "content_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "target_content_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "topic_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tag_name` TEXT NOT NULL, `parent_tag` TEXT, `content_count` INTEGER NOT NULL DEFAULT 0, `color` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`tag_name`))",
+        "fields": [
+          {
+            "fieldPath": "tagName",
+            "columnName": "tag_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentTag",
+            "columnName": "parent_tag",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "contentCount",
+            "columnName": "content_count",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "color",
+            "columnName": "color",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tag_name"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_topic_table_parent_tag",
+            "unique": false,
+            "columnNames": [
+              "parent_tag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_topic_table_parent_tag` ON `${TABLE_NAME}` (`parent_tag`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "stance_compare_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `topic_tag` TEXT NOT NULL, `side_a_content_ids` TEXT NOT NULL, `side_b_content_ids` TEXT NOT NULL, `side_a_summary` TEXT, `side_b_summary` TEXT, `status` INTEGER NOT NULL DEFAULT 0)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topicTag",
+            "columnName": "topic_tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sideAContentIds",
+            "columnName": "side_a_content_ids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sideBContentIds",
+            "columnName": "side_b_content_ids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sideASummary",
+            "columnName": "side_a_summary",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sideBSummary",
+            "columnName": "side_b_summary",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_stance_compare_table_topic_tag",
+            "unique": false,
+            "columnNames": [
+              "topic_tag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stance_compare_table_topic_tag` ON `${TABLE_NAME}` (`topic_tag`)"
+          },
+          {
+            "name": "index_stance_compare_table_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stance_compare_table_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "wake_plan_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `enabled` INTEGER NOT NULL DEFAULT 0, `cycle_type` TEXT, `trigger_time` TEXT, `scope` TEXT, `mode` TEXT NOT NULL, `daily_question_num` INTEGER NOT NULL DEFAULT 0, `next_run_time` INTEGER NOT NULL DEFAULT 0)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "cycleType",
+            "columnName": "cycle_type",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "triggerTime",
+            "columnName": "trigger_time",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "scope",
+            "columnName": "scope",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dailyQuestionNum",
+            "columnName": "daily_question_num",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "nextRunTime",
+            "columnName": "next_run_time",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_wake_plan_table_enabled",
+            "unique": false,
+            "columnNames": [
+              "enabled"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_wake_plan_table_enabled` ON `${TABLE_NAME}` (`enabled`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "qa_record_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `question_text` TEXT NOT NULL, `answer_text` TEXT, `source_content_ids` TEXT NOT NULL, `retrieval_ms` INTEGER NOT NULL DEFAULT 0, `generate_ms` INTEGER NOT NULL DEFAULT 0, `answer_status` INTEGER NOT NULL DEFAULT 0)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionText",
+            "columnName": "question_text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answerText",
+            "columnName": "answer_text",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sourceContentIds",
+            "columnName": "source_content_ids",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retrievalMs",
+            "columnName": "retrieval_ms",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "generateMs",
+            "columnName": "generate_ms",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "answerStatus",
+            "columnName": "answer_status",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_qa_record_table_answer_status",
+            "unique": false,
+            "columnNames": [
+              "answer_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_qa_record_table_answer_status` ON `${TABLE_NAME}` (`answer_status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "pet_status_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `phase` INTEGER NOT NULL DEFAULT 0, `total_contents` INTEGER NOT NULL DEFAULT 0, `active_days` INTEGER NOT NULL DEFAULT 0, `accessories` TEXT, `last_display_time` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phase",
+            "columnName": "phase",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "totalContents",
+            "columnName": "total_contents",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "activeDays",
+            "columnName": "active_days",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "accessories",
+            "columnName": "accessories",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastDisplayTime",
+            "columnName": "last_display_time",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "parse_task_table",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `content_id` INTEGER NOT NULL, `task_type` TEXT NOT NULL, `status` INTEGER NOT NULL DEFAULT 0, `retry_count` INTEGER NOT NULL DEFAULT 0, `created_time` INTEGER NOT NULL, FOREIGN KEY(`content_id`) REFERENCES `content_table`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "content_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "taskType",
+            "columnName": "task_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "retryCount",
+            "columnName": "retry_count",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "createdTime",
+            "columnName": "created_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_parse_task_table_content_id",
+            "unique": false,
+            "columnNames": [
+              "content_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parse_task_table_content_id` ON `${TABLE_NAME}` (`content_id`)"
+          },
+          {
+            "name": "index_parse_task_table_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parse_task_table_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "content_table",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "content_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "kg_claim_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`claim_id` TEXT NOT NULL, `probe_status` TEXT NOT NULL DEFAULT 'unprobed', `last_probed_at` INTEGER, `misconceptions` TEXT NOT NULL DEFAULT '[]', `confidence` REAL NOT NULL DEFAULT 0, `attempts` INTEGER NOT NULL DEFAULT 0, `correct` INTEGER NOT NULL DEFAULT 0, `streak` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`claim_id`))",
+        "fields": [
+          {
+            "fieldPath": "claimId",
+            "columnName": "claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "probeStatus",
+            "columnName": "probe_status",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'unprobed'"
+          },
+          {
+            "fieldPath": "lastProbedAt",
+            "columnName": "last_probed_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "misconceptions",
+            "columnName": "misconceptions",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "correct",
+            "columnName": "correct",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "streak",
+            "columnName": "streak",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "claim_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_claim_state_probe_status",
+            "unique": false,
+            "columnNames": [
+              "probe_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_claim_state_probe_status` ON `${TABLE_NAME}` (`probe_status`)"
+          },
+          {
+            "name": "index_kg_claim_state_last_probed_at",
+            "unique": false,
+            "columnNames": [
+              "last_probed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_claim_state_last_probed_at` ON `${TABLE_NAME}` (`last_probed_at`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_condition_probe",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`triple_id` TEXT NOT NULL, `intervention_id` TEXT NOT NULL, `claim_id` TEXT NOT NULL, `predicted_option` TEXT NOT NULL, `previous_predicted_option` TEXT, `correct_option` TEXT NOT NULL, `matched` INTEGER NOT NULL DEFAULT 0, `attempts` INTEGER NOT NULL DEFAULT 0, `wrong_attempts` INTEGER NOT NULL DEFAULT 0, `last_probed_at` INTEGER, `misconception` TEXT, PRIMARY KEY(`triple_id`, `intervention_id`))",
+        "fields": [
+          {
+            "fieldPath": "tripleId",
+            "columnName": "triple_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "interventionId",
+            "columnName": "intervention_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "claimId",
+            "columnName": "claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "predictedOption",
+            "columnName": "predicted_option",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "previousPredictedOption",
+            "columnName": "previous_predicted_option",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "correctOption",
+            "columnName": "correct_option",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matched",
+            "columnName": "matched",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "wrongAttempts",
+            "columnName": "wrong_attempts",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "lastProbedAt",
+            "columnName": "last_probed_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "misconception",
+            "columnName": "misconception",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "triple_id",
+            "intervention_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_condition_probe_claim_id",
+            "unique": false,
+            "columnNames": [
+              "claim_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_condition_probe_claim_id` ON `${TABLE_NAME}` (`claim_id`)"
+          },
+          {
+            "name": "index_kg_condition_probe_last_probed_at",
+            "unique": false,
+            "columnNames": [
+              "last_probed_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_condition_probe_last_probed_at` ON `${TABLE_NAME}` (`last_probed_at`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_runtime_claim",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`claim_id` TEXT NOT NULL, `statement` TEXT NOT NULL, `expected` INTEGER NOT NULL, `conditions` TEXT NOT NULL DEFAULT '[]', `explanation` TEXT, `misconception` TEXT, `evidence` TEXT, `card_id` TEXT NOT NULL, `outline_path` TEXT NOT NULL DEFAULT '', `source` TEXT NOT NULL DEFAULT 'cloud', `review_status` TEXT NOT NULL DEFAULT 'pending', `provider_id` TEXT, `embedding` BLOB, `created_time` INTEGER NOT NULL, `reviewed_time` INTEGER, PRIMARY KEY(`claim_id`))",
+        "fields": [
+          {
+            "fieldPath": "claimId",
+            "columnName": "claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statement",
+            "columnName": "statement",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expected",
+            "columnName": "expected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conditions",
+            "columnName": "conditions",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "explanation",
+            "columnName": "explanation",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "misconception",
+            "columnName": "misconception",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cardId",
+            "columnName": "card_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outlinePath",
+            "columnName": "outline_path",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'cloud'"
+          },
+          {
+            "fieldPath": "reviewStatus",
+            "columnName": "review_status",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'pending'"
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "provider_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "embedding",
+            "columnName": "embedding",
+            "affinity": "BLOB",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdTime",
+            "columnName": "created_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewedTime",
+            "columnName": "reviewed_time",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "claim_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_runtime_claim_card_id",
+            "unique": false,
+            "columnNames": [
+              "card_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_runtime_claim_card_id` ON `${TABLE_NAME}` (`card_id`)"
+          },
+          {
+            "name": "index_kg_runtime_claim_review_status",
+            "unique": false,
+            "columnNames": [
+              "review_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_runtime_claim_review_status` ON `${TABLE_NAME}` (`review_status`)"
+          },
+          {
+            "name": "index_kg_runtime_claim_source",
+            "unique": false,
+            "columnNames": [
+              "source"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_runtime_claim_source` ON `${TABLE_NAME}` (`source`)"
+          },
+          {
+            "name": "index_kg_runtime_claim_review_status_card_id",
+            "unique": false,
+            "columnNames": [
+              "review_status",
+              "card_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_runtime_claim_review_status_card_id` ON `${TABLE_NAME}` (`review_status`, `card_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_claim_merge",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`source_claim_id` TEXT NOT NULL, `target_claim_id` TEXT NOT NULL, `similarity` REAL NOT NULL DEFAULT 1.0, `basis` TEXT NOT NULL DEFAULT 'vector', `created_time` INTEGER NOT NULL, PRIMARY KEY(`source_claim_id`))",
+        "fields": [
+          {
+            "fieldPath": "sourceClaimId",
+            "columnName": "source_claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetClaimId",
+            "columnName": "target_claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "similarity",
+            "columnName": "similarity",
+            "affinity": "REAL",
+            "notNull": true,
+            "defaultValue": "1.0"
+          },
+          {
+            "fieldPath": "basis",
+            "columnName": "basis",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'vector'"
+          },
+          {
+            "fieldPath": "createdTime",
+            "columnName": "created_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "source_claim_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_claim_merge_target_claim_id",
+            "unique": false,
+            "columnNames": [
+              "target_claim_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_claim_merge_target_claim_id` ON `${TABLE_NAME}` (`target_claim_id`)"
+          },
+          {
+            "name": "index_kg_claim_merge_created_time",
+            "unique": false,
+            "columnNames": [
+              "created_time"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_claim_merge_created_time` ON `${TABLE_NAME}` (`created_time`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_generated_graph",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`topic_id` TEXT NOT NULL, `title` TEXT NOT NULL, `created_time` INTEGER NOT NULL, `source` TEXT NOT NULL DEFAULT 'cloud', `provider_id` TEXT, `block_count` INTEGER NOT NULL DEFAULT 0, `warnings` TEXT NOT NULL DEFAULT '[]', `verified` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`topic_id`))",
+        "fields": [
+          {
+            "fieldPath": "topicId",
+            "columnName": "topic_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdTime",
+            "columnName": "created_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'cloud'"
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "provider_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "blockCount",
+            "columnName": "block_count",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "warnings",
+            "columnName": "warnings",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "verified",
+            "columnName": "verified",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "topic_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_generated_graph_created_time",
+            "unique": false,
+            "columnNames": [
+              "created_time"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_graph_created_time` ON `${TABLE_NAME}` (`created_time`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_generated_outline",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`topic_id` TEXT NOT NULL, `path` TEXT NOT NULL, `parent_path` TEXT, `title` TEXT NOT NULL, `level` INTEGER NOT NULL, `order_index` INTEGER NOT NULL, PRIMARY KEY(`topic_id`, `path`))",
+        "fields": [
+          {
+            "fieldPath": "topicId",
+            "columnName": "topic_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentPath",
+            "columnName": "parent_path",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "level",
+            "columnName": "level",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "order",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "topic_id",
+            "path"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_generated_outline_topic_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_outline_topic_id` ON `${TABLE_NAME}` (`topic_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_generated_card",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`topic_id` TEXT NOT NULL, `card_id` TEXT NOT NULL, `outline_path` TEXT NOT NULL, `title` TEXT NOT NULL, `summary` TEXT NOT NULL, `body` TEXT NOT NULL, `order_index` INTEGER NOT NULL, PRIMARY KEY(`topic_id`, `card_id`))",
+        "fields": [
+          {
+            "fieldPath": "topicId",
+            "columnName": "topic_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cardId",
+            "columnName": "card_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outlinePath",
+            "columnName": "outline_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "order",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "topic_id",
+            "card_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_generated_card_topic_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_card_topic_id` ON `${TABLE_NAME}` (`topic_id`)"
+          },
+          {
+            "name": "index_kg_generated_card_topic_id_outline_path",
+            "unique": false,
+            "columnNames": [
+              "topic_id",
+              "outline_path"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_card_topic_id_outline_path` ON `${TABLE_NAME}` (`topic_id`, `outline_path`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_generated_prerequisite",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`topic_id` TEXT NOT NULL, `from_card_id` TEXT NOT NULL, `to_card_id` TEXT NOT NULL, `kind` TEXT NOT NULL DEFAULT 'recommended', `why` TEXT NOT NULL DEFAULT '', PRIMARY KEY(`topic_id`, `from_card_id`, `to_card_id`))",
+        "fields": [
+          {
+            "fieldPath": "topicId",
+            "columnName": "topic_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fromCardId",
+            "columnName": "from_card_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toCardId",
+            "columnName": "to_card_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'recommended'"
+          },
+          {
+            "fieldPath": "why",
+            "columnName": "why",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "topic_id",
+            "from_card_id",
+            "to_card_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_generated_prerequisite_topic_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_prerequisite_topic_id` ON `${TABLE_NAME}` (`topic_id`)"
+          },
+          {
+            "name": "index_kg_generated_prerequisite_topic_id_to_card_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id",
+              "to_card_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_prerequisite_topic_id_to_card_id` ON `${TABLE_NAME}` (`topic_id`, `to_card_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kg_generated_claim",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`topic_id` TEXT NOT NULL, `claim_id` TEXT NOT NULL, `card_id` TEXT NOT NULL, `outline_path` TEXT NOT NULL, `statement` TEXT NOT NULL, `expected` INTEGER NOT NULL, `conditions` TEXT NOT NULL, `explanation` TEXT NOT NULL, `misconception` TEXT NOT NULL, `evidence` TEXT NOT NULL, `order_index` INTEGER NOT NULL, PRIMARY KEY(`topic_id`, `claim_id`))",
+        "fields": [
+          {
+            "fieldPath": "topicId",
+            "columnName": "topic_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "claimId",
+            "columnName": "claim_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cardId",
+            "columnName": "card_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outlinePath",
+            "columnName": "outline_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statement",
+            "columnName": "statement",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expected",
+            "columnName": "expected",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conditions",
+            "columnName": "conditions",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "explanation",
+            "columnName": "explanation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "misconception",
+            "columnName": "misconception",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "order",
+            "columnName": "order_index",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "topic_id",
+            "claim_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_kg_generated_claim_topic_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_claim_topic_id` ON `${TABLE_NAME}` (`topic_id`)"
+          },
+          {
+            "name": "index_kg_generated_claim_topic_id_card_id",
+            "unique": false,
+            "columnNames": [
+              "topic_id",
+              "card_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_kg_generated_claim_topic_id_card_id` ON `${TABLE_NAME}` (`topic_id`, `card_id`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1ae5709f8993c68f66424c50e81d32cc')"
+    ]
+  }
+}

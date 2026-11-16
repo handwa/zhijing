@@ -95,3 +95,29 @@ data class GeneratedPrerequisite(
     val kind: String,
     val why: String = ""
 )
+
+/**
+ * 生成图谱里的一条命题（v8）。
+ *
+ * 它属于**这份生成图谱**，不进入 `kg_runtime_claim` 的人工审核队列：
+ * 主题删掉命题一起删，同一主题重新生成整份覆盖。
+ *
+ * 与出厂命题的差别只有两点：`evidence` 通常是空串（没有原文可溯源），
+ * 以及 UI 必须标注「未经核实」——生成图谱的正文本身就是模型撰写的。
+ */
+data class GeneratedClaim(
+    val topicId: String,
+    /** 命题 id，`sha1(规范化 statement)[:4]` 推导，主题内唯一。 */
+    val claimId: String,
+    /** 挂在哪张卡片下，决定下钻入口。 */
+    val cardId: String,
+    val outlinePath: String,
+    val statement: String,
+    val expected: Boolean,
+    val conditions: List<String> = emptyList(),
+    val explanation: String = "",
+    val misconception: String = "",
+    val evidence: String = "",
+    /** 同卡内排序，保证题目顺序稳定。 */
+    val order: Int = 0
+)

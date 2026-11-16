@@ -41,6 +41,12 @@ android {
     }
 }
 
+// 导出 Room schema：迁移测试要拿历史版本的真实建表语句重建旧库，
+// 手抄 DDL 迟早会和实体注解漂移，所以让它由编译器生成。
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     api("androidx.room:room-runtime:2.6.1")
     api("androidx.room:room-ktx:2.6.1")

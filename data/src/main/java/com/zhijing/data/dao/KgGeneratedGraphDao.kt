@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.zhijing.data.entity.KgGeneratedCardEntity
+import com.zhijing.data.entity.KgGeneratedClaimEntity
 import com.zhijing.data.entity.KgGeneratedGraphEntity
 import com.zhijing.data.entity.KgGeneratedOutlineEntity
 import com.zhijing.data.entity.KgGeneratedPrerequisiteEntity
@@ -80,6 +81,23 @@ internal interface KgGeneratedGraphDao {
     @Query("DELETE FROM kg_generated_prerequisite WHERE topic_id = :topicId")
     suspend fun deletePrerequisites(topicId: String)
 
+    /* ------------------------------------------------------------ 命题 */
+
+    @Query(
+        "SELECT * FROM kg_generated_claim WHERE topic_id = :topicId " +
+            "ORDER BY card_id ASC, order_index ASC"
+    )
+    suspend fun claimsOf(topicId: String): List<KgGeneratedClaimEntity>
+
+    @Query("SELECT * FROM kg_generated_claim ORDER BY topic_id, card_id, order_index ASC")
+    suspend fun allClaims(): List<KgGeneratedClaimEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertClaims(rows: List<KgGeneratedClaimEntity>)
+
+    @Query("DELETE FROM kg_generated_claim WHERE topic_id = :topicId")
+    suspend fun deleteClaims(topicId: String)
+
     /* ------------------------------------------------------ 整体替换 */
 
     /**
@@ -93,15 +111,19 @@ internal interface KgGeneratedGraphDao {
         meta: KgGeneratedGraphEntity,
         outline: List<KgGeneratedOutlineEntity>,
         cards: List<KgGeneratedCardEntity>,
-        prerequisites: List<KgGeneratedPrerequisiteEntity> = emptyList()
+        prerequisites: List<KgGeneratedPrerequisiteEntity> = emptyList(),
+        claims: List<KgGeneratedClaimEntity> = emptyList()
     ) {
         deleteOutline(meta.topicId)
         deleteCards(meta.topicId)
         deletePrerequisites(meta.topicId)
+        // 命题必须跟着卡片一起换：只删卡片不删命题会留下指向已消失卡片的孤儿
+        deleteClaims(meta.topicId)
         upsertGraph(meta)
         if (outline.isNotEmpty()) insertOutline(outline)
         if (cards.isNotEmpty()) insertCards(cards)
         if (prerequisites.isNotEmpty()) insertPrerequisites(prerequisites)
+        if (claims.isNotEmpty()) insertClaims(claims)
     }
 
     @Transaction
@@ -109,6 +131,7 @@ internal interface KgGeneratedGraphDao {
         deleteOutline(topicId)
         deleteCards(topicId)
         deletePrerequisites(topicId)
+        deleteClaims(topicId)
         deleteGraph(topicId)
     }
 }

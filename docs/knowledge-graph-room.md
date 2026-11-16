@@ -1,7 +1,7 @@
 # 知识图谱的存储分层：出厂命题在 assets，运行时数据在 Room
 
 > 对应代码：`data/src/main/java/com/zhijing/data/{entity,dao,repository}/Kg*.kt`
-> 数据库版本：`ZhijingDatabase` v7（4 张运行时表 + 4 张生成图谱表）
+> 数据库版本：`ZhijingDatabase` v8（4 张运行时表 + 5 张生成图谱表）
 
 ## 一、要解决的问题
 
@@ -121,6 +121,7 @@
 | `kg_generated_outline` | `(topic_id, path)` | 大纲节点；`level` / `parentPath` 由 `OutlineBuilder` 本地推算 |
 | `kg_generated_card` | `(topic_id, card_id)` | 卡片；`body` 是**原文逐字截取**，不是模型重写 |
 | `kg_generated_prerequisite` | `(topic_id, from_card_id, to_card_id)` | 前置依赖；`kind` = required（实线）/ recommended（虚线） |
+| `kg_generated_claim` | `(topic_id, claim_id)` | v8 新增：该主题自己的命题，使生成卡片可下钻；随主题整份删 |
 
 约定：
 
@@ -152,6 +153,31 @@
 
 **孤儿清理**：三元组在 assets、没有外键，图谱更新后调
 `pruneOrphans(aliveTripleIds)`；空列表直接返回 0（加载失败不能当「全部下架」）。
+
+### 3.6 `kg_generated_claim` —— 生成图谱自己的命题（v8 新增）
+
+生成图谱原来只有大纲、卡片和前置关系，**没有命题**：点进卡片既不能下钻，也不参与三态
+（`GraphCard.descendable` 要求 `claims` 非空）。这张表补的就是这个空缺。
+
+| 列 | 说明 |
+|---|---|
+| `(topic_id, claim_id)` | 联合主键；同一主题重复生成整份覆盖 |
+| `card_id` / `outline_path` | 挂回哪张生成卡片（下钻入口） |
+| `statement` / `expected` | 一句话断言与标准答案 |
+| `conditions` | 成立条件，JSON 数组 |
+| `explanation` / `misconception` | 撞错解释与误解 |
+| `evidence` | 依据片段；生成图谱没有原文，通常为空 |
+| `order_index` | 同卡内题序 |
+
+**为什么不复用 `kg_runtime_claim`**：那张表的语义是「云端/用户给整个知识库新增命题」，
+要求 `pending → confirmed` 才进图，用户得逐条审核。生成图谱的命题是那份图谱的一部分，
+主题删掉就该一起消失，两者生命周期不同。
+
+**删除约定**：无外键，`KgGeneratedGraphDao.deleteWholeGraph` 在同一事务里删卡片 + 命题；
+漏删会留下指向已消失卡片的孤儿。
+
+**尚未接的部分**：命题的**生产**（生成时按卡抽取）还没接进 `GraphGenerator`，
+所以现在这张表是空的，生成图谱仍然没有下钻 —— 见 `.codebuddy/plans/kg-generated-drilldown_c4e19a.md`。
 
 ## 四、使用方式
 

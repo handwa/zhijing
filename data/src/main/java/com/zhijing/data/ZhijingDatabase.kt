@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.zhijing.data.converter.EnumConverters
 import com.zhijing.data.converter.ListConverters
 import com.zhijing.data.converter.StringListConverters
@@ -15,6 +17,7 @@ import com.zhijing.data.entity.KgClaimMergeEntity
 import com.zhijing.data.entity.KgClaimStateEntity
 import com.zhijing.data.entity.KgConditionProbeEntity
 import com.zhijing.data.entity.KgGeneratedCardEntity
+import com.zhijing.data.entity.KgGeneratedClaimEntity
 import com.zhijing.data.entity.KgGeneratedGraphEntity
 import com.zhijing.data.entity.KgGeneratedOutlineEntity
 import com.zhijing.data.entity.KgGeneratedPrerequisiteEntity
@@ -61,12 +64,14 @@ import com.zhijing.data.entity.MessageEntity
  * v7 新增 `kg_condition_probe`：条件级探测记录（「条件 × 干预点」）。
  * 它比 `kg_claim_state` 细一层，用来回答「用户错在哪条机制上」。
  *
- * ⚠️ **v6 → v7 会清空全部用户数据**：本库用 `fallbackToDestructiveMigration()`，
- * 加表没有补 Migration。仓库内没有真实用户数据，开发期接受这个代价；
- * 队友手机上如果已有真实收藏，升级前先导出。
+ * v8 新增 `kg_generated_claim`：生成图谱自己的命题，使生成出来的卡片也能下钻。
  *
- * `exportSchema = false`：本阶段不引入数据库迁移，先不落地 schema 目录；
- * 后续加 Migration 时再打开并配置 `room.schemaLocation`。
+ * **v6 起补了真实迁移**（`MIGRATION_6_7` / `MIGRATION_7_8`）：从 v6 或 v7 升级
+ * 不再清空用户数据。`fallbackToDestructiveMigration()` 只对 v6 以前的历史版本生效，
+ * 那些版本没有迁移路径，也没有真实用户。
+ *
+ * `exportSchema = true` + `room.schemaLocation = data/schemas`：迁移测试要拿历史版本的
+ * **真实建表语句**重建旧库，手抄 DDL 迟早会和实体注解漂移。
  *
  * 该类型是 `internal`：模块外只能通过 [ZhiJingData] 拿到 Repository。
  */
@@ -91,10 +96,11 @@ import com.zhijing.data.entity.MessageEntity
         KgGeneratedGraphEntity::class,
         KgGeneratedOutlineEntity::class,
         KgGeneratedCardEntity::class,
-        KgGeneratedPrerequisiteEntity::class
+        KgGeneratedPrerequisiteEntity::class,
+        KgGeneratedClaimEntity::class
     ],
-    version = 7,
-    exportSchema = false
+    version = 8,
+    exportSchema = true
 )
 @TypeConverters(EnumConverters::class, ListConverters::class, StringListConverters::class)
 internal abstract class ZhijingDatabase : RoomDatabase() {
@@ -135,6 +141,77 @@ internal abstract class ZhijingDatabase : RoomDatabase() {
         @Volatile
         private var instance: ZhijingDatabase? = null
 
+        /**
+         * v6 → v7：补上 `kg_condition_probe`（条件级探测记录）。
+         *
+         * 建表语句抄自 `data/schemas/com.zhijing.data.ZhijingDatabase/7.json` 的 `createSql`，
+         * 不是手写的 —— 手抄 DDL 会和实体注解漂移，而 Room 升级后会校验整个 schema，
+         * 差一个 DEFAULT 就直接抛异常。`ZhijingMigrationTest` 会真的从 v6 库升上来验证。
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `kg_condition_probe` (" +
+                        "`triple_id` TEXT NOT NULL, " +
+                        "`intervention_id` TEXT NOT NULL, " +
+                        "`claim_id` TEXT NOT NULL, " +
+                        "`predicted_option` TEXT NOT NULL, " +
+                        "`previous_predicted_option` TEXT, " +
+                        "`correct_option` TEXT NOT NULL, " +
+                        "`matched` INTEGER NOT NULL DEFAULT 0, " +
+                        "`attempts` INTEGER NOT NULL DEFAULT 0, " +
+                        "`wrong_attempts` INTEGER NOT NULL DEFAULT 0, " +
+                        "`last_probed_at` INTEGER, " +
+                        "`misconception` TEXT, " +
+                        "PRIMARY KEY(`triple_id`, `intervention_id`))"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_kg_condition_probe_claim_id` " +
+                        "ON `kg_condition_probe` (`claim_id`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_kg_condition_probe_last_probed_at` " +
+                        "ON `kg_condition_probe` (`last_probed_at`)"
+                )
+            }
+        }
+
+        /**
+         * v7 → v8：补上 `kg_generated_claim`（生成图谱自己的命题）。
+         *
+         * 为什么单独一张表：生成命题跟着主题一起生、一起删，不进用户的命题审核队列。
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `kg_generated_claim` (" +
+                        "`topic_id` TEXT NOT NULL, " +
+                        "`claim_id` TEXT NOT NULL, " +
+                        "`card_id` TEXT NOT NULL, " +
+                        "`outline_path` TEXT NOT NULL, " +
+                        "`statement` TEXT NOT NULL, " +
+                        "`expected` INTEGER NOT NULL, " +
+                        "`conditions` TEXT NOT NULL, " +
+                        "`explanation` TEXT NOT NULL, " +
+                        "`misconception` TEXT NOT NULL, " +
+                        "`evidence` TEXT NOT NULL, " +
+                        "`order_index` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`topic_id`, `claim_id`))"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_kg_generated_claim_topic_id` " +
+                        "ON `kg_generated_claim` (`topic_id`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_kg_generated_claim_topic_id_card_id` " +
+                        "ON `kg_generated_claim` (`topic_id`, `card_id`)"
+                )
+            }
+        }
+
+        /** 全部迁移。测试直接引用它跑真实升级。 */
+        internal val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_6_7, MIGRATION_7_8)
+
         /** 进程内单例，使用 applicationContext 避免持有 Activity。 */
         fun getInstance(context: Context): ZhijingDatabase =
             instance ?: synchronized(this) {
@@ -142,7 +219,11 @@ internal abstract class ZhijingDatabase : RoomDatabase() {
                     context.applicationContext,
                     ZhijingDatabase::class.java,
                     DbConstants.DATABASE_NAME
-                )   .fallbackToDestructiveMigration()
+                )
+                    .addMigrations(*MIGRATIONS)
+                    // 仅作为兜底：v6 之前的历史版本没有迁移路径。
+                    // v6 → v7 → v8 都走真实迁移，不再清库。
+                    .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }
     }
