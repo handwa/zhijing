@@ -67,6 +67,9 @@ object SkillProgress {
 
         /** 处于易混淆的命题条数：这些必须先改对才能点亮。 */
         val confusedCount: Int = 0,
+
+        /** 第一条易错命题的断言（截断），用来告诉用户"究竟是哪条"卡住了点亮。 */
+        val confusedStatement: String? = null,
         /**
          * 是否有可判定内容（挂了命题）。
          *
@@ -167,6 +170,10 @@ object SkillProgress {
                 confusedCount = card.claims.count {
                     it.probe.probeStatus == ProbeStatus.CONFUSED
                 },
+                confusedStatement = card.claims
+                    .firstOrNull { it.probe.probeStatus == ProbeStatus.CONFUSED }
+                    ?.statement
+                    ?.take(18),
             )
         }
 
@@ -193,8 +200,13 @@ object SkillProgress {
         // 没有命题的组织性卡片：没有可判定内容，视为已点亮，避免把后面全锁死
         if (card.claims.isEmpty()) return true
 
-        // 有易混淆就先别点亮：用户刚撞错过，这时候告诉他能往下走是误导
-        if (card.claims.any { it.probe.probeStatus == ProbeStatus.CONFUSED }) return false
+        // 有易混淆就先别点亮：用户刚撞错过，这时候告诉他能往下走是误导。
+        // 例外：这条命题的干预点已经拨对过 —— 说明机理他懂了，只是没再做判断题，
+        // 不该因为一条陈旧的状态把人卡在这里（出厂图谱的卡片很容易落到这个组合）。
+        val blockedByConfusion = card.claims.any {
+            it.probe.probeStatus == ProbeStatus.CONFUSED && !practiced(it)
+        }
+        if (blockedByConfusion) return false
 
         val practiced = card.claims.count { practiced(it) }
         val needed = ceil(card.claims.size * LIT_PROBED_RATIO).toInt().coerceAtLeast(1)

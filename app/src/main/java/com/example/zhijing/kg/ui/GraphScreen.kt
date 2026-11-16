@@ -90,6 +90,13 @@ internal fun GraphScreen(
     loading: Boolean,
     onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 清空某张卡的作答记录（回到全部未探测）。
+     *
+     * 状态表没有 UI 入口时，一条陈旧的状态（比如早就改对过的易错）会把卡片永久卡住，
+     * 用户只能卸载重装。这里给一个明确的出口。
+     */
+    onResetCard: (cardId: String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onGenerateNew: () -> Unit = {},
     /**
@@ -248,6 +255,7 @@ internal fun GraphScreen(
                 ?: selectedPath,
             cards = nodeCards,
             skill = skill,
+            onResetCard = onResetCard,
             onDismiss = { selectedNodePath = null },
             onDescend = { cardId ->
                 selectedNodePath = null
@@ -926,6 +934,7 @@ private fun cardStateLine(progress: SkillProgress.CardProgress): String {
         }
         if (progress.confusedCount > 0) {
             append("，${progress.confusedCount} 条易错待纠正")
+            progress.confusedStatement?.let { append("：「$it…」") }
         } else if (progress.state != SkillProgress.State.LIT &&
             progress.practicedCount < progress.claimCount
         ) {
@@ -967,6 +976,7 @@ private fun NodeDetailSheet(
     title: String,
     cards: List<GraphCard>,
     skill: SkillProgress.Result,
+    onResetCard: (cardId: String) -> Unit,
     onDismiss: () -> Unit,
     onDescend: (cardId: String) -> Unit,
 ) {
@@ -1049,6 +1059,19 @@ private fun NodeDetailSheet(
                                         SkillProgress.State.LOCKED -> SkillVisual.locked
                                     },
                                 )
+                            }
+
+                            // 卡在易错时的出口：否则一条陈旧状态会让这张卡永久灰着
+                            if (progress != null && progress.confusedCount > 0) {
+                                TextButton(
+                                    onClick = { onResetCard(card.id) },
+                                    contentPadding = PaddingValues(0.dp),
+                                ) {
+                                    Text(
+                                        "清空这张卡的记录",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
                             }
 
                             // 命题数 + 下钻入口

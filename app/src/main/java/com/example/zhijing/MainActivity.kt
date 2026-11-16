@@ -620,6 +620,19 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                         genMessage = null
                         screen = AppScreen.GRAPH_GENERATE
                     },
+                    onResetCard = { cardId ->
+                        scope.launch {
+                            // 逐条回到「未探测」：不动条件级记录，那些是「错在哪」的事实
+                            mergedGraph?.cards?.firstOrNull { it.id == cardId }
+                                ?.claims
+                                ?.forEach { claim ->
+                                    data.kgStates.putState(
+                                        com.zhijing.data.model.ClaimProbeState(claimId = claim.id)
+                                    )
+                                }
+                            mergedGraph = runCatching { graphAssembler.load(graphMode) }.getOrNull()
+                        }
+                    },
                     onProbeAnswer = { answer ->
                         scope.launch {
                             // 条件级记录：只记「哪个干预点错了、猜的是什么」。

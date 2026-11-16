@@ -68,6 +68,24 @@ class SkillProgressTest {
     }
 
     @Test
+    fun `易错但干预点已拨对时不挡点亮`() {
+        // 出厂卡片常见组合：判断题撞错过，但条件题后来拨对了。
+        // 机理已经懂了，不该被一条陈旧状态永久卡住。
+        val result = SkillProgress.of(
+            graph(
+                listOf(
+                    cardWithStatuses(
+                        "a",
+                        listOf(ProbeStatus.CONFUSED),
+                        steps = listOf(pathStep(matched = true))
+                    )
+                )
+            )
+        )
+        assertEquals(SkillProgress.State.LIT, result.stateOf("a"))
+    }
+
+    @Test
     fun `有易混淆的命题挡住点亮`() {
         val result = SkillProgress.of(
             graph(

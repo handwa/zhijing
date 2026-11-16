@@ -553,6 +553,57 @@ class GraphAssemblerTest {
         assertEquals(SkillProgress.State.READY, skill.stateOf("crd.s1-2-relu"))
     }
 
+    /**
+     * 用户实测：1.4 / 4.1 显示「1 条易错待纠正」，重新答全对后仍不亮。
+     *
+     * 这条用例钉住「答错 → 答对」的收敛：状态必须从 CONFUSED 回到 VERIFIED，
+     * 易错计数清零，卡片点亮。它绿了说明问题在别处（作答没落库 / 看的是另一条命题）。
+     */
+    @Test
+    fun `先答错再答对能清掉易错并点亮`() = runBlocking {
+        val cases = listOf(
+            "crd.s1-4" to listOf(
+                "clm.arch.ffn.ce-logits.5a91",
+                "clm.arch.ffn.ce-double-softmax.eed8"
+            ),
+            "crd.s4-1" to listOf(
+                "clm.arch.attn.scale.2883",
+                "clm.arch.attn.no-scale.1418"
+            )
+        )
+
+        cases.forEach { (_, claimIds) ->
+            claimIds.forEach { id -> data.kgStates.recordJudgement(id, false, "先答错") }
+        }
+        // 先确认确实进了易错态，否则后面的断言没有意义
+        val confused = SkillProgress.of(assembler.load(includeRuntimeClaims = false))
+        cases.forEach { (cardId, _) ->
+            assertTrue(
+                "$cardId 应该先进入易错态",
+                confused.cards.getValue(cardId).confusedCount > 0
+            )
+        }
+
+        cases.forEach { (_, claimIds) ->
+            claimIds.forEach { id -> data.kgStates.recordJudgement(id, true, null) }
+        }
+        val fixed = SkillProgress.of(assembler.load(includeRuntimeClaims = false))
+        cases.forEach { (cardId, _) ->
+            assertEquals("$cardId 的易错应该清零", 0, fixed.cards.getValue(cardId).confusedCount)
+            assertEquals("$cardId 改对后应该点亮", SkillProgress.State.LIT, fixed.stateOf(cardId))
+        }
+    }
+
+    @Test
+    fun `这两张卡的命题期待答案与资产一致`() = runBlocking {
+        // 若 expected 解析反了，"答对"会被记成答错，卡片就永远停在易错
+        val merged = assembler.load(includeRuntimeClaims = false)
+        assertEquals(true, merged.claims.getValue("clm.arch.ffn.ce-logits.5a91").expected)
+        assertEquals(false, merged.claims.getValue("clm.arch.ffn.ce-double-softmax.eed8").expected)
+        assertEquals(true, merged.claims.getValue("clm.arch.attn.scale.2883").expected)
+        assertEquals(false, merged.claims.getValue("clm.arch.attn.no-scale.1418").expected)
+    }
+
     @Test
     fun `生成图谱的命题作答后点亮并解锁下游`() = runBlocking {
         val topicId = "ut-gen-ready"
