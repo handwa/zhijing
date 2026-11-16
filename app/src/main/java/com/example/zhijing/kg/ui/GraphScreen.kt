@@ -247,6 +247,7 @@ internal fun GraphScreen(
                 ?: nodeCards.firstOrNull()?.title
                 ?: selectedPath,
             cards = nodeCards,
+            skill = skill,
             onDismiss = { selectedNodePath = null },
             onDescend = { cardId ->
                 selectedNodePath = null
@@ -607,6 +608,7 @@ private fun DescendDialog(
                                 },
                                 onNext = { if (claimIndex + 1 < ordered.size) onIndexChange(claimIndex + 1) },
                                 onClose = onClose,
+                                hasNext = claimIndex + 1 < ordered.size,
                             )
                         }
                     }
@@ -903,6 +905,35 @@ private fun collectPaths(node: GraphOutlineNode?): Set<String> {
     return out
 }
 
+/**
+ * 卡片状态的一句话说明。
+ *
+ * 只画颜色不够：一张卡有 2 条命题时，答完 1 条不会点亮（阈值 80%），
+ * 用户看到的是「我答了但没反应」。这里把「练了几条、还差几条、有几条易错」写出来。
+ */
+private fun cardStateLine(progress: SkillProgress.CardProgress): String {
+    val base = when (progress.state) {
+        SkillProgress.State.LIT -> "已点亮"
+        SkillProgress.State.READY -> "现在能学"
+        SkillProgress.State.LOCKED -> "未解锁"
+    }
+    return buildString {
+        append(base)
+        append(" · ")
+        append("${progress.practicedCount}/${progress.claimCount} 条已练")
+        if (progress.state == SkillProgress.State.LOCKED) {
+            append("，还差 ${progress.missingPrerequisites.size} 条前置")
+        }
+        if (progress.confusedCount > 0) {
+            append("，${progress.confusedCount} 条易错待纠正")
+        } else if (progress.state != SkillProgress.State.LIT &&
+            progress.practicedCount < progress.claimCount
+        ) {
+            append("，还剩 ${progress.claimCount - progress.practicedCount} 条没练")
+        }
+    }
+}
+
 /** 卡片的面包屑：沿大纲找到它所属节点的父链标题。 */
 private fun outlinePathOf(graph: MergedGraph, card: GraphCard): String {
     fun find(nodes: List<GraphOutlineNode>, trail: List<String>): List<String>? {
@@ -935,6 +966,7 @@ private fun outlinePathOf(graph: MergedGraph, card: GraphCard): String {
 private fun NodeDetailSheet(
     title: String,
     cards: List<GraphCard>,
+    skill: SkillProgress.Result,
     onDismiss: () -> Unit,
     onDescend: (cardId: String) -> Unit,
 ) {
@@ -1002,6 +1034,22 @@ private fun NodeDetailSheet(
                                 content,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+
+                            // 为什么这张卡还没点亮：写清「练了几条 / 还差几条 / 有几条易错」。
+                            // 只画颜色的话，用户答了一条没亮，不知道是没答完还是规则坏了。
+                            val progress = skill.cards[card.id]
+                            if (progress != null && progress.learnable) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = cardStateLine(progress),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = when (progress.state) {
+                                        SkillProgress.State.LIT -> SkillVisual.lit
+                                        SkillProgress.State.READY -> SkillVisual.ready
+                                        SkillProgress.State.LOCKED -> SkillVisual.locked
+                                    },
+                                )
+                            }
 
                             // 命题数 + 下钻入口
                             if (card.claims.isNotEmpty()) {

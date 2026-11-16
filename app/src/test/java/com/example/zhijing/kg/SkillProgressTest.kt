@@ -206,6 +206,36 @@ class SkillProgressTest {
     }
 
     @Test
+    fun `记录练过几条与几条易错`() {
+        // 两张卡：b 只练了 1 条（且有一条答错），用来验证"还差几条"这类提示的数据来源
+        val result = SkillProgress.of(
+            graph(
+                listOf(
+                    cardWithStatuses(
+                        "a",
+                        listOf(ProbeStatus.VERIFIED, ProbeStatus.UNPROBED),
+                    ),
+                    cardWithStatuses(
+                        "b",
+                        listOf(ProbeStatus.VERIFIED, ProbeStatus.CONFUSED),
+                    ),
+                )
+            )
+        )
+
+        val a = result.cards.getValue("a")
+        assertEquals(1, a.practicedCount)
+        assertEquals(2, a.claimCount)
+        assertEquals(0, a.confusedCount)
+
+        val b = result.cards.getValue("b")
+        assertEquals(1, b.practicedCount)
+        assertEquals(1, b.confusedCount)
+        // 有易错就不点亮，哪怕已经练过一条
+        assertEquals(SkillProgress.State.READY, b.state)
+    }
+
+    @Test
     fun `节点状态取最保守的一张卡`() {
         val result = SkillProgress.of(
             graph(

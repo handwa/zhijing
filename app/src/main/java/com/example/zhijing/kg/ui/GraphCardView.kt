@@ -231,6 +231,8 @@ fun ClaimJudgementView(
     onAnswered: (correct: Boolean) -> Unit,
     onNext: () -> Unit,
     onClose: () -> Unit,
+    /** 还有下一条命题。false 时底部只给「完成」——避免点了没反应的假按钮。 */
+    hasNext: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var answered by remember(claim.id) { mutableStateOf<Boolean?>(null) }
@@ -310,11 +312,16 @@ fun ClaimJudgementView(
             RevealSection(claim, judgedCorrect = answered!!)
             Spacer(Modifier.height(ZjSpace.lg))
             Row(horizontalArrangement = Arrangement.spacedBy(ZjSpace.md)) {
-                TextButton(onClick = onNext, modifier = Modifier.weight(1f)) {
-                    Text("下一条")
+                if (hasNext) {
+                    TextButton(onClick = onNext, modifier = Modifier.weight(1f)) {
+                        Text("下一条")
+                    }
                 }
-                TextButton(onClick = onClose, modifier = Modifier.weight(1f)) {
-                    Text("返回卡片")
+                TextButton(
+                    onClick = onClose,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (hasNext) "返回卡片" else "完成")
                 }
             }
         }

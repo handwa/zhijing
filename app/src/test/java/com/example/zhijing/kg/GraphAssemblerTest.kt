@@ -520,19 +520,35 @@ class GraphAssemblerTest {
 
     @Test
     fun `出厂卡片答完一轮即点亮并解锁下游`() = runBlocking {
-        // 1.1 有两条命题；一轮下钻每条只判一次，收敛结果是 VERIFIED
-        listOf(
-            "clm.arch.ffn.linear-in-dim.4a3e",
-            "clm.arch.ffn.linear-param-batch.2fe7"
-        ).forEach { id ->
-            data.kgStates.recordJudgement(id, correct = true, misconception = null)
+        // 覆盖用户实测说「怎么都不行」的三张卡：1.1、1.4 交叉熵、4.1 缩放点积注意力。
+        // 每张都是两条命题，全部判对才算点亮（80% 阈值对 2 条命题等于「都要练」）。
+        val cases = listOf(
+            "crd.s1-1-linear" to listOf(
+                "clm.arch.ffn.linear-in-dim.4a3e",
+                "clm.arch.ffn.linear-param-batch.2fe7"
+            ),
+            "crd.s1-4" to listOf(
+                "clm.arch.ffn.ce-logits.5a91",
+                "clm.arch.ffn.ce-double-softmax.eed8"
+            ),
+            "crd.s4-1" to listOf(
+                "clm.arch.attn.scale.2883",
+                "clm.arch.attn.no-scale.1418"
+            )
+        )
+        cases.forEach { (_, claimIds) ->
+            claimIds.forEach { id ->
+                data.kgStates.recordJudgement(id, correct = true, misconception = null)
+            }
         }
 
         val merged = assembler.load(includeRuntimeClaims = false)
         val skill = SkillProgress.of(merged)
 
-        // 答过一轮就该点亮，否则全图卡在 1.1（第一版实测到的 bug）
-        assertEquals(SkillProgress.State.LIT, skill.stateOf("crd.s1-1-linear"))
+        cases.forEach { (cardId, claimIds) ->
+            assertEquals("$cardId 的命题应该都已练过", claimIds.size, skill.cards.getValue(cardId).practicedCount)
+            assertEquals("$cardId 答完一轮就该点亮", SkillProgress.State.LIT, skill.stateOf(cardId))
+        }
         // 下游从「未解锁」变「现在能学」
         assertEquals(SkillProgress.State.READY, skill.stateOf("crd.s1-2-relu"))
     }

@@ -58,6 +58,15 @@ object SkillProgress {
         val downstreamCount: Int = 0,
         /** 尚未点亮的必须前置卡片 id（LOCKED 时给出，便于解释"卡在哪"）。 */
         val missingPrerequisites: List<String> = emptyList(),
+
+        /** 已练过的命题条数（判断题判对过，或干预点拨对过）。 */
+        val practicedCount: Int = 0,
+
+        /** 这张卡一共几条命题（用来解释"还差几条"）。 */
+        val claimCount: Int = 0,
+
+        /** 处于易混淆的命题条数：这些必须先改对才能点亮。 */
+        val confusedCount: Int = 0,
         /**
          * 是否有可判定内容（挂了命题）。
          *
@@ -153,6 +162,11 @@ object SkillProgress {
                 downstreamCount = downstreamCount(card.id),
                 missingPrerequisites = missing,
                 learnable = card.claims.isNotEmpty(),
+                practicedCount = card.claims.count { practiced(it) },
+                claimCount = card.claims.size,
+                confusedCount = card.claims.count {
+                    it.probe.probeStatus == ProbeStatus.CONFUSED
+                },
             )
         }
 
@@ -182,12 +196,14 @@ object SkillProgress {
         // 有易混淆就先别点亮：用户刚撞错过，这时候告诉他能往下走是误导
         if (card.claims.any { it.probe.probeStatus == ProbeStatus.CONFUSED }) return false
 
-        val practiced = card.claims.count { claim ->
-            claim.probe.probeStatus == ProbeStatus.VERIFIED ||
-                claim.probe.probeStatus == ProbeStatus.MASTERED ||
-                claim.conditionPath.any { it.matched }
-        }
+        val practiced = card.claims.count { practiced(it) }
         val needed = ceil(card.claims.size * LIT_PROBED_RATIO).toInt().coerceAtLeast(1)
         return practiced >= needed
     }
+
+    /** 「练过」：判断题判对过，或该命题下有干预点拨对过。 */
+    private fun practiced(claim: GraphClaim): Boolean =
+        claim.probe.probeStatus == ProbeStatus.VERIFIED ||
+            claim.probe.probeStatus == ProbeStatus.MASTERED ||
+            claim.conditionPath.any { it.matched }
 }
