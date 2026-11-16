@@ -14,7 +14,8 @@ import kotlin.math.ceil
  *
  * ## 三态的定义（别写成"进度条"）
  *
- * - [State.LIT]：卡内 ≥ [LIT_MASTER_RATIO] 的命题已是 `MASTERED`；
+ * - [State.LIT]：卡内 ≥ [LIT_PROBED_RATIO] 的命题已探测（`VERIFIED` 或 `MASTERED`），
+ *   且**没有一条处于 `CONFUSED`** —— 撞错过的必须先改对才算点亮；
  * - [State.READY]：还没点亮，但**所有必须前置**都已点亮 —— 这就是"现在能学"；
  * - [State.LOCKED]：还有必须前置没点亮。
  *
@@ -28,8 +29,14 @@ import kotlin.math.ceil
  */
 object SkillProgress {
 
-    /** 判「已点亮」所需的命题掌握比例。放常量便于调参。 */
-    const val LIT_MASTER_RATIO = 0.8f
+    /**
+     * 判「已点亮」所需的命题**探测**比例。放常量便于调参。
+     *
+     * 为什么不是"掌握比例"：一轮下钻里每条命题只判一次，`ProbeRules` 只给 `VERIFIED`，
+     * 连续判对两次才 `MASTERED`。按"80% 已掌握"来点亮，用户答完一整张卡也点不亮 ——
+     * 这正是第一版实测到的问题（除 1.1 外全图卡死）。
+     */
+    const val LIT_PROBED_RATIO = 0.8f
 
     /** 卡片三态。 */
     enum class State {
@@ -159,13 +166,19 @@ object SkillProgress {
         )
     }
 
-    /** 一张卡片是否已点亮：卡内多数命题已掌握。 */
+    /** 一张卡片是否已点亮：答过一遍且没有挂着没搞懂的。 */
     private fun isLit(card: GraphCard): Boolean {
         // 没有命题的组织性卡片：没有可判定内容，视为已点亮，避免把后面全锁死
         if (card.claims.isEmpty()) return true
 
-        val mastered = card.claims.count { it.probe.probeStatus == ProbeStatus.MASTERED }
-        val needed = ceil(card.claims.size * LIT_MASTER_RATIO).toInt().coerceAtLeast(1)
-        return mastered >= needed
+        // 有易混淆就先别点亮：用户刚撞错过，这时候告诉他能往下走是误导
+        if (card.claims.any { it.probe.probeStatus == ProbeStatus.CONFUSED }) return false
+
+        val probed = card.claims.count {
+            it.probe.probeStatus == ProbeStatus.VERIFIED ||
+                it.probe.probeStatus == ProbeStatus.MASTERED
+        }
+        val needed = ceil(card.claims.size * LIT_PROBED_RATIO).toInt().coerceAtLeast(1)
+        return probed >= needed
     }
 }

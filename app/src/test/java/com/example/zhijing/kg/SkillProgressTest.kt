@@ -17,8 +17,38 @@ class SkillProgressTest {
 
     /* --------------------------------------------------- 点亮判定 */
 
+    /**
+     * 回归：一轮下钻里每条命题只判一次，收敛结果是 `VERIFIED` 而不是 `MASTERED`。
+     *
+     * 第一版按「80% 已掌握」点亮，实测的结果是「答完整张卡也不会亮，全图除 1.1 外全锁死」。
+     * 点亮必须认 `VERIFIED`；`MASTERED` 留给之后的"稳固"标记。
+     */
     @Test
-    fun `掌握比例达到阈值才算点亮`() {
+    fun `答对一轮就点亮，不必连对两次`() {
+        val result = SkillProgress.of(
+            graph(listOf(cardWithStatuses("a", List(2) { ProbeStatus.VERIFIED })))
+        )
+        assertEquals(SkillProgress.State.LIT, result.stateOf("a"))
+    }
+
+    @Test
+    fun `有易混淆的命题挡住点亮`() {
+        val result = SkillProgress.of(
+            graph(
+                listOf(
+                    cardWithStatuses(
+                        "a",
+                        listOf(ProbeStatus.VERIFIED, ProbeStatus.CONFUSED),
+                    )
+                )
+            )
+        )
+        // 撞错过的必须先改对；这时点亮会误导用户"可以往下走"
+        assertEquals(SkillProgress.State.READY, result.stateOf("a"))
+    }
+
+    @Test
+    fun `探测比例达到阈值才算点亮`() {
         // 5 条命题、4 条已掌握 = 80%，刚好够
         val lit = SkillProgress.of(graph(listOf(card("a", claims = 5, mastered = 4))))
         assertEquals(SkillProgress.State.LIT, lit.stateOf("a"))
@@ -179,19 +209,32 @@ class SkillProgressTest {
         claims: Int = 0,
         mastered: Int = 0,
         prerequisites: List<PrerequisiteLink> = emptyList(),
+    ) = cardWithStatuses(
+        id = id,
+        statuses = List(claims) { index ->
+            if (index < mastered) ProbeStatus.MASTERED else ProbeStatus.UNPROBED
+        },
+        prerequisites = prerequisites,
+    )
+
+    /** 直接指定每条命题的状态，用来测"探测一次算不算点亮"这类边界。 */
+    private fun cardWithStatuses(
+        id: String,
+        statuses: List<ProbeStatus>,
+        prerequisites: List<PrerequisiteLink> = emptyList(),
     ) = GraphCard(
         id = id,
         title = id,
         outlinePath = id,
         summary = "",
         body = "",
-        claims = (0 until claims).map { index ->
-            claim(id = "$id.c$index", cardId = id, mastered = index < mastered)
+        claims = statuses.mapIndexed { index, status ->
+            claim(id = "$id.c$index", cardId = id, status = status)
         },
         prerequisites = prerequisites,
     )
 
-    private fun claim(id: String, cardId: String, mastered: Boolean) = GraphClaim(
+    private fun claim(id: String, cardId: String, status: ProbeStatus) = GraphClaim(
         id = id,
         statement = id,
         expected = true,
@@ -204,10 +247,7 @@ class SkillProgressTest {
         errorKinds = emptyList(),
         misconception = "",
         edgeIds = emptyList(),
-        probe = ClaimProbeState(
-            claimId = id,
-            probeStatus = if (mastered) ProbeStatus.MASTERED else ProbeStatus.UNPROBED,
-        ),
+        probe = ClaimProbeState(claimId = id, probeStatus = status),
         source = ClaimSource.BUNDLED,
         bundled = true,
     )
