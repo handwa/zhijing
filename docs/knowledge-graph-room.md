@@ -176,8 +176,12 @@
 **删除约定**：无外键，`KgGeneratedGraphDao.deleteWholeGraph` 在同一事务里删卡片 + 命题；
 漏删会留下指向已消失卡片的孤儿。
 
-**尚未接的部分**：命题的**生产**（生成时按卡抽取）还没接进 `GraphGenerator`，
-所以现在这张表是空的，生成图谱仍然没有下钻 —— 见 `.codebuddy/plans/kg-generated-drilldown_c4e19a.md`。
+**生产**：`GraphGenerator` 出图后按卡片正文调 `CloudClaimExtractor`（前 12 张卡，每卡一次调用），
+产物经 `GeneratedClaimBuilder` 过四道闸门（长度 6–80 字、规范化去重、每卡最多 2 条、ID 合规）后随图谱一起落库。
+抽取失败只记 warning，**不阻塞出图**。
+
+**合并**：`GraphAssembler` 读 `allClaims()` 按 `cardId` 挂到 `GraphCard.claims`，
+`source = CLOUD`、`verified = false`，下钻面板会标「未经核实」；三态与角标随之生效。
 
 ## 四、使用方式
 

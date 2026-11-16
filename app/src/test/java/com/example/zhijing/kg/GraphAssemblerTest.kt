@@ -6,6 +6,7 @@ import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.ClaimReviewStatus
 import com.zhijing.data.model.ClaimSource
 import com.zhijing.data.model.GeneratedCard
+import com.zhijing.data.model.GeneratedClaim
 import com.zhijing.data.model.GeneratedGraph
 import com.zhijing.data.model.GeneratedOutlineNode
 import com.zhijing.data.model.ProbeStatus
@@ -17,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -466,6 +468,53 @@ class GraphAssemblerTest {
                 it.fromNode in genPaths && it.toNode in genPaths
         }
         assertEquals(3, hierarchyLines.size)
+    }
+
+    @Test
+    fun `生成图谱的命题挂到卡片并打开下钻`() = runBlocking {
+        val topicId = "ut-gen-claims"
+        val cardId = "crd.gen.$topicId.0"
+        val claimId = "clm.gen.test.1a2b"
+
+        data.kgGenerated.save(
+            meta = GeneratedGraph(
+                topicId = topicId,
+                title = "带命题的主题",
+                createdTime = 1L,
+                providerId = "deepseek",
+                blockCount = 1,
+                verified = false
+            ),
+            outline = listOf(
+                GeneratedOutlineNode(topicId, path = "ch1", parentPath = null, title = "第一章", level = 1, order = 0)
+            ),
+            cards = listOf(
+                GeneratedCard(topicId, cardId = cardId, outlinePath = "ch1", title = "块A", summary = "", body = "正文A", order = 0)
+            ),
+            claims = listOf(
+                GeneratedClaim(
+                    topicId = topicId,
+                    claimId = claimId,
+                    cardId = cardId,
+                    outlinePath = "ch1",
+                    statement = "矩阵加法满足交换律",
+                    expected = true
+                )
+            )
+        )
+
+        val merged = assembler.load(includeRuntimeClaims = false)
+        val card = merged.cards.first { it.id == cardId }
+        val claim = card.claims.single()
+
+        assertTrue("有命题就该能下钻", card.descendable)
+        assertEquals("矩阵加法满足交换律", claim.statement)
+        assertFalse("生成命题不属于出厂", claim.bundled)
+        // 没有原文依据：UI 靠这个字段标「未经核实」
+        assertFalse(claim.verified)
+        assertEquals(ClaimSource.CLOUD, claim.source)
+        // 必须进全图索引，否则状态汇总与 ID 解析看不到它
+        assertSame(claim, merged.claims.getValue(claimId))
     }
 
     @Test

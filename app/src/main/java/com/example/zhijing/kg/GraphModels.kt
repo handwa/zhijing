@@ -194,6 +194,14 @@ data class GraphClaim(
     val source: ClaimSource,
     /** 是否来自 assets（出厂命题）。`false` 表示运行时增量，可被用户删除。 */
     val bundled: Boolean,
+
+    /**
+     * 内容是否可溯源核实。
+     *
+     * `false` = 模型生成（生成图谱的命题就是这一类），**UI 必须标注「未经核实」** ——
+     * 没有原文依据的断言不能被当成课程事实。
+     */
+    val verified: Boolean = true,
     /**
      * 理解路径（第一版，单线）：按最近作答倒序的「预测 → 揭示」。
      *

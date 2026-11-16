@@ -314,28 +314,65 @@ class GraphAssembler(
                 }
             }
 
-        // 生成图谱的卡片：转成 GraphCard。
-        // 它们**没有命题**（广度生成不产出可判断的断言），因此角标为 null、不可下钻。
+        // 生成图谱的命题：按 cardId 分组挂到卡片上，下钻入口随之打开。
+        // 它们是「模型生成、未经核实」：source = CLOUD 且 verified = false。
+        val genClaimRows = if (generated.isEmpty()) emptyList() else data.kgGenerated.allClaims()
+        val genClaimsByCard = genClaimRows.groupBy { it.cardId }
+
+        fun genClaimsOf(card: GeneratedCard): List<GraphClaim> =
+            genClaimsByCard[card.cardId].orEmpty().map { row ->
+                GraphClaim(
+                    id = row.claimId,
+                    statement = row.statement,
+                    expected = row.expected,
+                    conditions = row.conditions,
+                    evidence = row.evidence,
+                    cardId = row.cardId,
+                    outlinePath = card.outlinePath,
+                    // 生成命题没有「判断面板文案」字段，用固定问句：判定对象永远是断言本身
+                    question = "这条说法成立吗？",
+                    explanation = row.explanation,
+                    errorKinds = emptyList(),
+                    misconception = row.misconception,
+                    edgeIds = emptyList(),
+                    probe = states[row.claimId] ?: ClaimProbeState(claimId = row.claimId),
+                    source = ClaimSource.CLOUD,
+                    bundled = false,
+                    // 生成图谱的正文本身就是模型撰写，命题也没有原文依据
+                    verified = false,
+                    conditionPath = emptyList()
+                )
+            }
+
+        // 生成图谱的卡片：转成 GraphCard，并挂上自己的命题（可能为空）
         val genGraphCards = genCards.map { c ->
+            val cardClaims = genClaimsOf(c)
             GraphCard(
                 id = c.cardId,
                 title = c.title,
                 outlinePath = c.outlinePath,
                 summary = c.summary,
                 body = c.body,
-                badgeStatus = null,
+                claims = cardClaims,
+                badgeStatus = MergedGraph.badgeOf(cardClaims.map { claim -> claim.probe.probeStatus }),
                 prerequisites = genPrereqByCard[c.cardId].orEmpty()
             )
         }
 
         val allCards = cards + genGraphCards
 
+        // 生成命题也要进全图索引：状态汇总、ID 解析都按这张表走
+        val allClaims = LinkedHashMap(claims)
+        genGraphCards.forEach { card ->
+            card.claims.forEach { claim -> allClaims[claim.id] = claim }
+        }
+
         return MergedGraph(
             schemaVersion = bundled.schemaVersion,
             generatedAt = bundled.generatedAt,
             outline = outline + generatedRoots,
             cards = allCards,
-            claims = claims,
+            claims = allClaims,
             edges = bundled.edges.associateBy { it.id },
             // 三元组只来自出厂图谱；生成图谱目前不产出可拨条件
             triples = bundled.triples
@@ -346,8 +383,8 @@ class GraphAssembler(
      * 把 Room 里的生成图谱组装成大纲子树。
      *
      * 每个主题一个根节点（`gen.<topicId>`），其下是 `OutlineBuilder` 推出的层级。
-     * 生成卡片**没有命题**（内容来自模型切块，不是命题抽取），因此 `badgeStatus` 为 null、
-     * `descendable` 为 false —— 这是设计决定：广度生成不产出可判断的断言。
+     * 卡片命题由 `kg_generated_claim` 提供（v8）；主题生成时没有产出命题的卡片
+     * `badgeStatus` 为 null、`descendable` 为 false。
      *
      * ## 层级重建：信 level，不信 parentPath
      *

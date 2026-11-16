@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.zhijing.cloud.CloudProvider
 import com.zhijing.data.ZhiJingData
 import com.zhijing.data.model.GeneratedCard
+import com.zhijing.data.model.GeneratedClaim
 import com.zhijing.data.model.GeneratedGraph
 import com.zhijing.data.model.GeneratedOutlineNode
 import com.zhijing.data.model.GeneratedPrerequisite
@@ -27,7 +28,9 @@ import com.zhijing.data.model.GeneratedPrerequisite
  */
 class GraphGenerator(
     private val data: ZhiJingData,
-    private val extractor: CloudOutlineExtractor = CloudOutlineExtractor()
+    private val extractor: CloudOutlineExtractor = CloudOutlineExtractor(),
+    /** 按卡产命题（下钻用）。与广度抽取分开：它失败不能影响出图。 */
+    private val claimExtractor: CloudClaimExtractor = CloudClaimExtractor()
 ) {
 
     /** 一次生成的结果。 */
@@ -47,7 +50,9 @@ class GraphGenerator(
              */
             val verified: Boolean = true,
             /** 落库的卡片前置关系条数。 */
-            val prerequisiteCount: Int = 0
+            val prerequisiteCount: Int = 0,
+            /** 落库的命题条数；为 0 表示这次没产出可下钻的题。 */
+            val claimCount: Int = 0
         ) : Result
 
         /** 模型没有产出任何可用的块（例如原文太短、或返回空）。 */
@@ -176,8 +181,26 @@ class GraphGenerator(
             verified = extraction.verified
         )
 
+        // 命题：每一卡一次模型调用，失败只记 warning，绝不阻塞出图 ——
+        // 没有题最多是「点进去没得练」，出不了图是「白等一次」。
+        val claimResult = runCatching { extractClaims(provider, topicId, title, cards) }
+            .getOrElse { e ->
+                Log.w(TAG, "claim extraction failed: ${e.message}")
+                ClaimExtraction(
+                    claims = emptyList(),
+                    warnings = listOf("命题抽取失败：${e.message ?: e.javaClass.simpleName}")
+                )
+            }
+
+        // 重复生成同一主题时，新命题会随卡片一起整份替换（DAO 事务里删旧建新）
         runCatching {
-            data.kgGenerated.save(meta, outlineNodes, cards, prerequisites)
+            data.kgGenerated.save(
+                meta = meta.copy(warnings = meta.warnings + claimResult.warnings),
+                outline = outlineNodes,
+                cards = cards,
+                prerequisites = prerequisites,
+                claims = claimResult.claims
+            )
         }.getOrElse { e ->
             Log.w(TAG, "persist failed: ${e.message}")
             return Result.Failed("保存失败：${e.message ?: e.javaClass.simpleName}")
@@ -188,9 +211,56 @@ class GraphGenerator(
             title = title,
             outlineCount = outlineNodes.size,
             cardCount = cards.size,
-            warnings = meta.warnings,
+            warnings = meta.warnings + claimResult.warnings,
             verified = extraction.verified,
-            prerequisiteCount = prerequisites.size
+            prerequisiteCount = prerequisites.size,
+            claimCount = claimResult.claims.size
+        )
+    }
+
+    /** 一次命题抽取的产物。 */
+    private data class ClaimExtraction(
+        val claims: List<GeneratedClaim>,
+        val warnings: List<String>
+    )
+
+    /**
+     * 按卡产命题。
+     *
+     * 只给前 [MAX_CARDS_WITH_CLAIMS] 张卡产题：每张一次模型调用，50 张就是 50 次，
+     * 生成一次要等好几分钟。先覆盖前几章（学习的入口），剩下的卡片保留「暂无习题」。
+     */
+    private suspend fun extractClaims(
+        provider: CloudProvider,
+        topicId: String,
+        title: String,
+        cards: List<GeneratedCard>
+    ): ClaimExtraction {
+        val warnings = ArrayList<String>()
+        val extracted = LinkedHashMap<String, List<ExtractedClaim>>()
+
+        cards.take(MAX_CARDS_WITH_CLAIMS).forEach { card ->
+            val body = card.body.trim()
+            // 太短的正文抽不出可判定的断言，直接跳过，省一次调用
+            if (body.length < MIN_BODY_FOR_CLAIM) return@forEach
+
+            runCatching {
+                claimExtractor.extract(
+                    provider = provider,
+                    content = body.take(MAX_BODY_FOR_CLAIM),
+                    topicHint = "$title · ${card.title}"
+                )
+            }.onSuccess { result ->
+                if (result.claims.isNotEmpty()) extracted[card.cardId] = result.claims
+            }.onFailure { e ->
+                Log.w(TAG, "claim extract failed on ${card.cardId}: ${e.message}")
+                warnings += "命题抽取失败（${card.title}）：${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+
+        return ClaimExtraction(
+            claims = GeneratedClaimBuilder.build(topicId, cards, extracted),
+            warnings = warnings
         )
     }
 
@@ -207,5 +277,14 @@ class GraphGenerator(
 
     private companion object {
         const val TAG = "GraphGenerator"
+
+        /** 最多给多少张卡产命题（每张一次模型调用）。 */
+        const val MAX_CARDS_WITH_CLAIMS = 12
+
+        /** 正文短于这个长度就不抽了：抽不出能判真假的断言。 */
+        const val MIN_BODY_FOR_CLAIM = 20
+
+        /** 单次抽取的正文上限，与 `kg/prompts/extract_claims.md` 的 900 字约定一致。 */
+        const val MAX_BODY_FOR_CLAIM = 900
     }
 }

@@ -669,7 +669,13 @@ fun ChatScreen(modifier: Modifier = Modifier) {
                                             append("已生成「${outcome.title}」：")
                                             append("${outcome.outlineCount} 个大纲节点、")
                                             append("${outcome.cardCount} 张卡片、")
-                                            append("${outcome.prerequisiteCount} 条前置关系。\n")
+                                            append("${outcome.prerequisiteCount} 条前置关系、")
+                                            append("${outcome.claimCount} 条可下钻命题。\n")
+                                            if (outcome.claimCount == 0) {
+                                                // 没命题就点不进下钻，必须说清是"没抽到"而不是"坏了"
+                                                append("这次没有抽取到命题，卡片暂时不能下钻。")
+                                                append("\n")
+                                            }
                                             if (outcome.verified) {
                                                 append("内容来自你提供的原文，有出处。")
                                             } else {

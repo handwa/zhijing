@@ -239,7 +239,12 @@ fun ClaimJudgementView(
         // 顶栏：进度 + 关闭
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "第 ${index + 1} / $total 条 · ${StatusVisual.label(claim.probe.probeStatus)}",
+                text = buildString {
+                    append("第 ${index + 1} / $total 条 · ")
+                    append(StatusVisual.label(claim.probe.probeStatus))
+                    // 生成图谱的命题没有原文依据：必须让用户知道自己在判一条模型写的断言
+                    if (!claim.verified) append(" · 未经核实")
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
