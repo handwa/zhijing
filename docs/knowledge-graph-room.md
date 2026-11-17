@@ -31,11 +31,15 @@
 └──────────────────────────────────────────┘
 ```
 
-**assets 里除了出版物还有两块「增补源」**：卡片前置关系与条件三元组（`triples`）都不是
-`build_graph.py` 的产物，而是模型抽取/人工撰写后固化的内容。它们放在
-`kg/data/source/deep_supplement.json`，由 `kg/src/export.py` 导出 assets 时合并。
+**assets 里除了出版物还有三块「增补源」**：卡片前置关系、条件三元组（`triples`）与补充的深度边（`edges`）
+都不是 `build_graph.py` 的产物，而是模型抽取/人工撰写后固化的内容。它们放在
+`kg/data/source/deep_supplement.json`，由 `kg/src/export.py` 的 `merge_supplement()` 导出 assets 时合并
+（边按 `id` 去重，端点必须是真实命题，自环与悬空引用丢弃并计数）。
 之所以不直接手改 `assets/kg/graph.json`：那条路径跑一次 `export`（包括 `kg/tests` 里的导出用例）
 就会被整份覆盖，「预测 → 揭示」会静默变空。
+
+边的补全让 36 条命题**每一条都有深度边**（38 条：16 条来自 `build_graph` + 22 条来自增补源），
+判题揭示屏据此显示「成立边界与反例」——按 `from == claimId` 反查，不依赖 build 产物里的 `edgeIds`。
 
 **为什么不整份搬**：出厂命题是出版物而非用户数据；整份进库会引入「assets 与 Room 两份真相」
 和每版 APK 的迁移负担，而离线可读这件事 `assets` 已经做到了。
