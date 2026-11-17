@@ -1,5 +1,7 @@
 package com.example.zhijing.kg.ui
 
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -19,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +51,8 @@ import com.example.zhijing.kg.PrerequisiteSource
 import com.example.zhijing.kg.SkillProgress
 import com.example.zhijing.ui.theme.ZjSpace
 import kotlin.math.min
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * 结构图：语义布局的节点连线视图。
@@ -113,6 +118,41 @@ fun GraphTreeView(
 
     // 宿主没传就自己算一份（预览/单测里方便）
     val skillProgress = skill ?: remember(graph) { SkillProgress.of(graph) }
+
+    // 点亮动效：只对「刚变成已点亮」的节点做一次扩散描边。
+    // 状态在 LaunchedEffect 里推进，绘制期只读 —— DrawScope 里写状态会触发无限重组。
+    val nodeStates = remember(layout, skillProgress) {
+        SkillAnimation.nodeStates(layout, skillProgress)
+    }
+    val litProgress = remember { mutableStateMapOf<String, Float>() }
+    val previousStates = remember { HashMap<String, SkillProgress.State>() }
+    LaunchedEffect(nodeStates) {
+        // 首次进入只记录基线，不闪：那不是「刚点亮」，是「刚打开」
+        if (previousStates.isEmpty()) {
+            previousStates.putAll(nodeStates)
+            return@LaunchedEffect
+        }
+        val newly = SkillAnimation.newlyLit(previousStates, nodeStates)
+            .take(SkillAnimation.MAX_CONCURRENT)
+        previousStates.clear()
+        previousStates.putAll(nodeStates)
+        if (newly.isEmpty()) return@LaunchedEffect
+
+        coroutineScope {
+            newly.forEach { path ->
+                launch {
+                    animate(
+                        initialValue = 0f,
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = LIT_ANIMATION_MS),
+                    ) { value, _ ->
+                        litProgress[path] = value
+                    }
+                    litProgress.remove(path)
+                }
+            }
+        }
+    }
 
     // 读屏：Canvas 本身没有节点语义，这里至少给出整体状态与当前选中项，
     // 让 TalkBack 用户知道"图里有什么、我在哪"。
@@ -302,6 +342,7 @@ fun GraphTreeView(
                     selectedNode = selectedNode,
                     relatedNodes = relatedNodes,
                     skill = skillProgress,
+                    litProgress = litProgress,
                 )
             }
         }
@@ -382,6 +423,12 @@ fun GraphTreeView(
         }
     }
 }
+
+/** 点亮扩散动画时长：够被看见，又不至于让人等。 */
+private const val LIT_ANIMATION_MS = 320
+
+/** 扩散描边的最大外扩距离（dp）。 */
+private const val LIT_RING_EXPAND = 6f
 
 /** 缩放范围：与 `kg/web` 的 0.35–2.4× 保持一致。 */
 private const val MIN_SCALE = 0.35f
@@ -760,6 +807,8 @@ private fun DrawScope.drawNodes(
     relatedNodes: Set<String> = emptySet(),
     /** 卡片三态：节点边框与角标据此上色，图标做第二重编码（缩放后颜色不可靠）。 */
     skill: SkillProgress.Result,
+    /** 「刚点亮」的节点 → 动画进度 0..1（0 表示没有动画）。 */
+    litProgress: Map<String, Float> = emptyMap(),
 ) {
     // 未解锁的虚线框：颜色之外的第二重编码，色弱用户也能分辨
     val lockDash = PathEffect.dashPathEffect(floatArrayOf(5f, 4f), 0f)
@@ -826,6 +875,22 @@ private fun DrawScope.drawNodes(
                 Stroke(width = borderWidth)
             }
         )
+
+        // 点亮扩散：一圈描边外扩并淡出。只在绘制期读动画进度，不在这里写状态
+        litProgress[node.nodePath]?.let { progress ->
+            if (progress > 0f) {
+                val expand = LIT_RING_EXPAND * progress
+                drawRoundRect(
+                    color = SkillVisual.lit.copy(alpha = (1f - progress) * 0.9f),
+                    topLeft = Offset(node.x - expand, node.y - expand),
+                    size = Size(node.width + expand * 2, node.height + expand * 2),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                        (node.height + expand * 2) / 2f
+                    ),
+                    style = Stroke(width = 2.5f),
+                )
+            }
+        }
 
         // 文本：宽度约束用像素（= dp × density）。
         // 有状态图标时右侧让出 18dp，否则图标会压在标题最后一个字上。
