@@ -114,6 +114,37 @@ class ConditionProbeSessionTest {
         assertEquals(ConditionProbeSession.Step.Done, done.step)
     }
 
+    /**
+     * 「重走这道」：从路径里点某个干预点，直接停在它上面，不必把前面的题再答一遍。
+     */
+    @Test
+    fun forCardStartsAtRequestedIntervention() {
+        val triples = listOf(
+            triple(
+                "tri.a",
+                interventions = listOf(
+                    intervention("inv.1"),
+                    intervention("inv.2"),
+                    intervention("inv.3"),
+                )
+            )
+        )
+
+        val resumed = ConditionProbeSession.forCard(triples, "crd.a", startAt = "inv.3")
+        assertEquals("inv.3", resumed.current?.interventionId)
+        // 题号按真实位置算，不会变成「重走后的第 1 题」
+        assertEquals(3, resumed.current?.ordinal)
+    }
+
+    @Test
+    fun forCardFallsBackWhenStartAtMissing() {
+        // 三元组被下架后旧路径仍然存在：找不到起点就从第一题开始，不抛异常
+        val triples = listOf(triple("tri.a", interventions = listOf(intervention("inv.1"))))
+        val session = ConditionProbeSession.forCard(triples, "crd.a", startAt = "inv.gone")
+
+        assertEquals("inv.1", session.current?.interventionId)
+    }
+
     @Test
     fun questionsAreOrderedDeterministically() {
         val b = triple(id = "tri.b", interventions = listOf(intervention("inv.1")))

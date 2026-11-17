@@ -17,6 +17,8 @@ package com.example.zhijing.kg.depth
  */
 internal class ConditionProbeSession private constructor(
     private val slots: List<Slot>,
+    /** 起始位置：从路径里「重走」某一题时直接从它开始，而不是从头再答一遍。 */
+    startIndex: Int = 0,
 ) {
 
     /**
@@ -74,7 +76,7 @@ internal class ConditionProbeSession private constructor(
         data object Done : Step
     }
 
-    private var index = 0
+    private var index = startIndex.coerceIn(0, slots.size)
     private val answered = LinkedHashMap<String, Answer>()
 
     /** 是否有可出题的干预点（图谱里没有 triples 时为 false，UI 应完全跳过本流程）。 */
@@ -173,12 +175,17 @@ internal class ConditionProbeSession private constructor(
          *        不跳过的话，一张有 5 个干预点的卡每次进来都要先把 5 道题重答一遍
          *        才能看到判断题面板 —— 用户会以为「答了没反应」。
          */
+        /**
+         * @param startAt 从哪个干预点开始（理解路径「重走这道」）；命不中就从头开始。
+         *        找不到时**不抛异常**：三元组下架后旧路径还在，不能让界面崩掉。
+         */
         fun forCard(
             triples: List<ConditionTriple>,
             cardId: String,
             skipInterventionIds: Set<String> = emptySet(),
+            startAt: String? = null,
         ): ConditionProbeSession =
-            create(triples.filter { it.cardId == cardId }, skipInterventionIds)
+            create(triples.filter { it.cardId == cardId }, skipInterventionIds, startAt)
 
         /** 某条命题下所有合格三元组的题。 */
         fun forClaim(triples: List<ConditionTriple>, claimId: String): ConditionProbeSession =
@@ -187,6 +194,7 @@ internal class ConditionProbeSession private constructor(
         private fun create(
             triples: List<ConditionTriple>,
             skipInterventionIds: Set<String> = emptySet(),
+            startAt: String? = null,
         ): ConditionProbeSession {
             val pairs = triples
                 // 入库三门槛：机制为空、没有干预、干预没有误判库的，不进交互
@@ -200,7 +208,11 @@ internal class ConditionProbeSession private constructor(
             val slots = pairs.mapIndexed { position, (triple, intervention) ->
                 Slot(position = position, triple = triple, intervention = intervention)
             }
-            return ConditionProbeSession(slots)
+            // 重走的起点：命不中（三元组被下架）就从第一题开始
+            val startIndex = startAt
+                ?.let { id -> slots.indexOfFirst { it.intervention.id == id } }
+                ?.takeIf { it >= 0 } ?: 0
+            return ConditionProbeSession(slots, startIndex)
         }
     }
 }
