@@ -41,6 +41,11 @@
 边的补全让 36 条命题**每一条都有深度边**（38 条：16 条来自 `build_graph` + 22 条来自增补源），
 判题揭示屏据此显示「成立边界与反例」——按 `from == claimId` 反查，不依赖 build 产物里的 `edgeIds`。
 
+**前置的「为什么」也有出口了**：`PrerequisiteLink.reason` / `source` 一直随 assets 与
+`kg_generated_prerequisite.why` 解析下来，但此前从未渲染。现在节点详情里每张卡最多列 3 条前置
+（`必须前置：<标题> —— <为什么>（人工书写|未经核实）`），超出折叠；来源标签由
+`ui/PrerequisiteText.kt` 统一，避免同一个 `AUTHORED_MODEL` 在两个界面说出两种口径。
+
 **为什么不整份搬**：出厂命题是出版物而非用户数据；整份进库会引入「assets 与 Room 两份真相」
 和每版 APK 的迁移负担，而离线可读这件事 `assets` 已经做到了。
 
