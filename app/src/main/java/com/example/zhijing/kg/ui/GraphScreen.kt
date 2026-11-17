@@ -650,6 +650,8 @@ private fun DescendDialog(
                                 onClose = onClose,
                                 hasNext = claimIndex + 1 < ordered.size,
                                 onReplayStep = onReplayStep,
+                                // 增补的深度边：按 from 反查，不依赖 claim.edgeIds（它来自 build 产物）
+                                boundaryEdges = graph.edges.values.filter { it.from == current.id },
                             )
                         }
                     }

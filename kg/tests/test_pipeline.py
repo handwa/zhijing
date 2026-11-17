@@ -110,6 +110,19 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(len(supplement["triples"]), 12)
         self.assertEqual(sum(len(t["interventions"]) for t in supplement["triples"]), 48)
 
+        # 深度边：22 条补边，端点必须是真实命题，且带条件三段（否则揭示屏没东西可讲）
+        edges = supplement.get("edges", [])
+        self.assertEqual(len(edges), 22)
+        for e in edges:
+            self.assertIn(e["from"], claim_ids, f"边起点不存在：{e['id']}")
+            self.assertIn(e["to"], claim_ids, f"边终点不存在：{e['id']}")
+            self.assertNotEqual(e["from"], e["to"], f"边不能是自环：{e['id']}")
+            condition = e["condition"]
+            self.assertTrue(
+                condition.get("premise") or condition.get("boundary"),
+                f"边缺前提与边界：{e['id']}",
+            )
+
     def test_idempotent_build(self):
         """连跑两次 build，产物应一致（忽略 generatedAt 时间戳）—— 哈希稳定性的最高层验证。"""
         a = self.tmp / "a.json"

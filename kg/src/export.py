@@ -95,11 +95,31 @@ def merge_supplement(graph: Dict[str, Any], supplement: Dict[str, Any]) -> Dict[
         else:
             dropped_triples += 1
 
+    # 深度边同样来自增补源：`build_graph` 只从 markdown 产边，
+    # 补的边如果直接写进 assets，跑一次导出就被覆盖（triples 已经踩过这个坑）。
+    existing_edge_ids = {e["id"] for e in graph.get("edges", [])}
+    edges: List[Dict[str, Any]] = []
+    dropped_edges = 0
+    for e in supplement.get("edges", []):
+        src, dst = e.get("from"), e.get("to")
+        if (
+            e.get("id")
+            and e["id"] not in existing_edge_ids
+            and src in claim_ids
+            and dst in claim_ids
+            and src != dst
+        ):
+            edges.append(e)
+        else:
+            dropped_edges += 1
+
     return {
         "prerequisites": prerequisites,
         "triples": triples,
+        "edges": edges,
         "droppedPrerequisites": dropped_prerequisites,
         "droppedTriples": dropped_triples,
+        "droppedEdges": dropped_edges,
     }
 
 
@@ -154,22 +174,25 @@ def export_assets(graph: Dict[str, Any]) -> Path:
     """
     导出 Android assets 版图谱。
 
-    与其它两个目标不同：**这里要合并增补源**（前置关系 + 条件三元组）。
+    与其它两个目标不同：**这里要合并增补源**（前置关系 + 条件三元组 + 深度边）。
     web/SQL 只需要 build 产出的那部分，多出来的字段它们也用不上。
     """
     merged = merge_supplement(graph, load_supplement())
     payload = dict(graph)
     payload["prerequisites"] = merged["prerequisites"]
     payload["triples"] = merged["triples"]
+    # 补的边追加在 build 产出的边之后（id 冲突的已在 merge 里挡掉）
+    payload["edges"] = list(graph.get("edges", [])) + merged["edges"]
 
     ASSETS_PATH.parent.mkdir(parents=True, exist_ok=True)
     ASSETS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    dropped = merged["droppedPrerequisites"] + merged["droppedTriples"]
+    dropped = merged["droppedPrerequisites"] + merged["droppedTriples"] + merged["droppedEdges"]
     if dropped:
         print(
             f"  ! 增补源有 {dropped} 条引用不到节点被丢弃"
-            f"（前置 {merged['droppedPrerequisites']} / 三元组 {merged['droppedTriples']}）"
+            f"（前置 {merged['droppedPrerequisites']} / 三元组 {merged['droppedTriples']}"
+            f" / 边 {merged['droppedEdges']}）"
         )
     return ASSETS_PATH
 

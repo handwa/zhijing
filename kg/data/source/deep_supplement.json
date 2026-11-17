@@ -1291,5 +1291,337 @@
         }
       ]
     }
+  ],
+  "edges": [
+    {
+      "id": "edg.sup.param-batch",
+      "from": "clm.arch.ffn.linear-param-batch.2fe7",
+      "to": "clm.arch.dep.shape.85dd",
+      "type": "depends_on",
+      "condition": {
+        "kind": "shape",
+        "premise": "参数量只由权重矩阵的形状决定，与一次前向里塞多少样本无关",
+        "boundary": "含 bias 时同理：bias 形状只看输出维度",
+        "counterexample": "以为 batch 越大权重越多 —— 把激活值的内存占用当成了参数量"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.relu-shape",
+      "from": "clm.arch.ffn.relu-shape.6092",
+      "to": "clm.arch.dep.shape.85dd",
+      "type": "depends_on",
+      "condition": {
+        "kind": "shape",
+        "premise": "ReLU 逐元素作用，输出形状与输入完全相同",
+        "boundary": "广播只在两操作数之间发生，一元逐元素算子不触发",
+        "counterexample": "以为负值被删掉会让张量变窄 —— 删的是值，不是维度"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.softmax-axis",
+      "from": "clm.arch.ffn.softmax-dim.4af1",
+      "to": "clm.arch.dep.stats-dim.e92b",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "归一化沿类别维，类别维通常是最后一维",
+        "boundary": "高维输出（如 [N, H, C]）必须显式指定 axis，不能默认最后维就是类别",
+        "counterexample": "把 batch 维当成类别维，于是每个样本的概率加起来不等于 1"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.softmax-shift",
+      "from": "clm.arch.ffn.softmax-shift.6358",
+      "to": "clm.arch.ffn.softmax-dim.4af1",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "分子分母同乘 e^c，常数被约掉，输出不变",
+        "boundary": "实现上还另有用途：减去最大值防止指数溢出",
+        "counterexample": "以为加常数会整体平移概率分布 —— 平移的是 logits，不是概率"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.shape-rule",
+      "from": "clm.arch.dep.shape.85dd",
+      "to": "clm.arch.ffn.relu-shape.6092",
+      "type": "depends_on",
+      "condition": {
+        "kind": "shape",
+        "premise": "形状依赖只要求上游输出的最后一维等于下游期望的输入维度",
+        "boundary": "前导维自由；广播与转置会改变「哪一维参与对齐」",
+        "counterexample": "把前导维也当成必须相等，于是 batch 一变就以为要改网络"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.range-sigmoid",
+      "from": "clm.arch.dep.range-sigmoid.0888",
+      "to": "clm.arch.ffn.ce-logits.5a91",
+      "type": "affects",
+      "condition": {
+        "kind": "range",
+        "premise": "Sigmoid 输出落在 (0,1)，二分类可直接当概率读",
+        "boundary": "多分类需要和为 1，Sigmoid 单独用不满足；且它不是 logits",
+        "counterexample": "把 Sigmoid 输出直接送进 CrossEntropy —— 概率不是 logits，梯度会被压缩"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.ln-dim",
+      "from": "clm.arch.dep.stats-dim.e92b",
+      "to": "clm.arch.ffn.softmax-dim.4af1",
+      "type": "contrasts",
+      "condition": {
+        "kind": "statistics",
+        "premise": "LayerNorm 在特征维上算均值方差，与 batch 大小无关",
+        "boundary": "特征维与类别维是两根不同的轴，别混用",
+        "counterexample": "把 LayerNorm 当成「按 batch 归一化」—— 那正好是 BatchNorm"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.residual-shape",
+      "from": "clm.arch.dep.grad-residual.8054",
+      "to": "clm.arch.train.pre-ln.b81c",
+      "type": "depends_on",
+      "condition": {
+        "kind": "gradient",
+        "premise": "残差相加要求主分支输出与捷径输入形状一致",
+        "boundary": "形状一致之后才有梯度直通；不一致需要投影对齐",
+        "counterexample": "以为残差能自动对齐形状 —— 对不上就是运行时错误"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.relu-dead",
+      "from": "clm.arch.dep.grad-relu-dead.ebf3",
+      "to": "clm.arch.ffn.relu-zero-grad.8ab0",
+      "type": "depends_on",
+      "condition": {
+        "kind": "gradient",
+        "premise": "x<0 时 ReLU 导数为 0，该神经元的梯度通道被切断",
+        "boundary": "只有长期落在负半轴才会「死亡」；偶尔为负会被后续更新拉回",
+        "counterexample": "把「梯度为 0」当成「参数不再更新」的唯一原因 —— 学习率、优化器状态也会"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.train-ln",
+      "from": "clm.arch.train.ln-dim.8cae",
+      "to": "clm.arch.dep.stats-dim.e92b",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "LayerNorm 的统计量在单样本内部沿特征维算",
+        "boundary": "与 batch 无关，因此小 batch 也稳定",
+        "counterexample": "以为 LayerNorm 也需要足够大的 batch —— 那是 BatchNorm 的前提"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.bn-infer",
+      "from": "clm.arch.train.bn-infer.7ae7",
+      "to": "clm.arch.dep.bn-small-batch.b33d",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "推理阶段用训练期累积的滑动均值/方差，与当前 batch 无关",
+        "boundary": "若训练时 batch 过小，滑动统计量本身已被污染",
+        "counterexample": "以为推理也现算 batch 统计量 —— 那样同一个样本的预测会随同批其他样本变化"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.pre-ln",
+      "from": "clm.arch.train.pre-ln.b81c",
+      "to": "clm.arch.dep.grad-residual.8054",
+      "type": "depends_on",
+      "condition": {
+        "kind": "gradient",
+        "premise": "Pre-LN 把归一化放进子层分支，残差通路本身不被归一化",
+        "boundary": "代价是表达力略降，需要更深的层数补回来",
+        "counterexample": "以为 Pre-LN 只是把 LN 换个位置、效果完全等价"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.attn-scale",
+      "from": "clm.arch.attn.scale.2883",
+      "to": "clm.arch.ffn.softmax-dim.4af1",
+      "type": "affects",
+      "condition": {
+        "kind": "statistics",
+        "premise": "q·k 的方差随 d_k 线性增长，除以 sqrt(d_k) 把方差拉回常数",
+        "boundary": "d_k 很小时不缩放影响也有限，问题随 d_k 放大",
+        "counterexample": "以为缩放只是调参技巧 —— 它是量纲上的必要步骤"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.mask-order",
+      "from": "clm.arch.attn.mask-before-softmax.f3c1",
+      "to": "clm.arch.ffn.softmax-dim.4af1",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "掩码必须在 Softmax 之前：被屏蔽位置不能进分母",
+        "boundary": "放到 Softmax 之后，剩余概率之和小于 1，归一化被污染",
+        "counterexample": "以为「乘 0」等于「没算」—— 分母已经算过了"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.mha-concat",
+      "from": "clm.arch.attn.mha-concat.cffd",
+      "to": "clm.arch.ffn.linear-param-batch.2fe7",
+      "type": "depends_on",
+      "condition": {
+        "kind": "shape",
+        "premise": "各头输出拼接后过一次线性投影，参数量约等于单头",
+        "boundary": "拼接维是 h × (d_model/h) = d_model，投影矩阵因此仍是方阵",
+        "counterexample": "以为多头让参数量翻 h 倍 —— d_model 被切分了，总量没涨"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.pos-encoding",
+      "from": "clm.arch.attn.pos-encoding-needed.3780",
+      "to": "clm.arch.dep.semantic.7874",
+      "type": "depends_on",
+      "condition": {
+        "kind": "semantic",
+        "premise": "自注意力对输入顺序置换等变，位置信息必须额外注入",
+        "boundary": "有位置编码后仍不是严格保序，只是获得了区分能力",
+        "counterexample": "以为注意力能自己学会顺序 —— 没有位置信号时它连「谁在前」都看不到"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.s5-boundary",
+      "from": "clm.arch.s5.boundary.92a4",
+      "to": "clm.arch.dep.semantic.7874",
+      "type": "affects",
+      "condition": {
+        "kind": "semantic",
+        "premise": "判断句的成立范围由条件写明；边界内为真，边界外可能换义",
+        "boundary": "条件缺失时不能默认成立，只能当作「未标注」",
+        "counterexample": "把「x≤0 时梯度为 0」套到 x>0 —— 边界一破，结论就反了"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.qa-dropout",
+      "from": "clm.arch.qa.q2.2899",
+      "to": "clm.arch.train.bn-infer.7ae7",
+      "type": "contrasts",
+      "condition": {
+        "kind": "semantic",
+        "premise": "训练与推理的随机性约定相反：Dropout 训练时置零、推理时全保留",
+        "boundary": "推理仍随机置零会让同一输入的预测不稳定",
+        "counterexample": "把「训练要正则」当成「推理也要正则」"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.qa-bn-infer",
+      "from": "clm.arch.qa.q3.a531",
+      "to": "clm.arch.train.bn-infer.7ae7",
+      "type": "depends_on",
+      "condition": {
+        "kind": "statistics",
+        "premise": "推理用训练期累积的滑动统计量",
+        "boundary": "训练期统计量质量取决于 batch 大小",
+        "counterexample": "以为推理会用当前 batch 重新统计"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.qa-ce-grad",
+      "from": "clm.arch.qa.q4.51c7",
+      "to": "clm.arch.ffn.ce-logits.5a91",
+      "type": "depends_on",
+      "condition": {
+        "kind": "range",
+        "premise": "CE 对 logits 的梯度就是 softmax 输出减 one-hot",
+        "boundary": "前提是输入为未归一化 logits；先做 softmax 会多乘 p(1-p)",
+        "counterexample": "以为梯度要自己推 —— 这个简洁形式正是 CE+softmax 合并实现的原因"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.qa-adam",
+      "from": "clm.arch.qa.q5.6e65",
+      "to": "clm.arch.train.pre-ln.b81c",
+      "type": "affects",
+      "condition": {
+        "kind": "gradient",
+        "premise": "自适应优化器调的是每维步长，学习率仍是全局步长基准",
+        "boundary": "学习率过大时自适应也救不回来",
+        "counterexample": "以为 Adam 免学习率 —— 它只是把「每维同一步长」换成按梯度二阶矩缩放"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    },
+    {
+      "id": "edg.sup.qa-softmax-confidence",
+      "from": "clm.arch.qa.q6.55d7",
+      "to": "clm.arch.ffn.softmax-dim.4af1",
+      "type": "refutes",
+      "condition": {
+        "kind": "statistics",
+        "premise": "Softmax 是归一化，不是校准；输出高不代表模型可靠",
+        "boundary": "未校准的模型在分布外样本上也会给出很高概率",
+        "counterexample": "把概率当成置信度 —— 两者差一个校准步骤"
+      },
+      "evidence": "",
+      "weight": 0.7,
+      "source": "AUTHORED_HUMAN"
+    }
   ]
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.zhijing.kg.GraphCard
 import com.example.zhijing.kg.GraphClaim
+import com.example.zhijing.kg.GraphEdge
 import com.example.zhijing.ui.theme.ZjRadius
 import com.example.zhijing.ui.theme.ZjSpace
 
@@ -236,6 +237,8 @@ fun ClaimJudgementView(
     hasNext: Boolean = true,
     /** 理解路径里点「重走这道」：回到那个干预点重答。 */
     onReplayStep: ((interventionId: String) -> Unit)? = null,
+    /** 这条命题的深度边：给出成立前提、边界与反例。 */
+    boundaryEdges: List<GraphEdge> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     var answered by remember(claim.id) { mutableStateOf<Boolean?>(null) }
@@ -316,6 +319,7 @@ fun ClaimJudgementView(
                 claim = claim,
                 judgedCorrect = answered!!,
                 onReplayStep = onReplayStep,
+                boundaryEdges = boundaryEdges,
             )
             Spacer(Modifier.height(ZjSpace.lg))
             Row(horizontalArrangement = Arrangement.spacedBy(ZjSpace.md)) {
@@ -340,6 +344,7 @@ private fun RevealSection(
     claim: GraphClaim,
     judgedCorrect: Boolean,
     onReplayStep: ((interventionId: String) -> Unit)? = null,
+    boundaryEdges: List<GraphEdge> = emptyList(),
 ) {
     val verdictColor = if (judgedCorrect) {
         StatusVisual.color(com.zhijing.data.model.ProbeStatus.MASTERED)
@@ -413,6 +418,32 @@ private fun RevealSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+
+    // 成立边界与反例：来自深度边（含增补源补的边）。有边才显示，
+    // 没边的命题不要伪造一段"因为没有原文所以…"的填充话。
+    if (boundaryEdges.isNotEmpty()) {
+        Spacer(Modifier.height(ZjSpace.md))
+        SectionTitle("成立边界与反例")
+        boundaryEdges.take(2).forEach { edge ->
+            if (edge.premise.isNotBlank()) {
+                Text("前提：${edge.premise}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (edge.boundary.isNotBlank()) {
+                Text(
+                    text = "边界：${edge.boundary}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (edge.counterexample.isNotBlank()) {
+                Text(
+                    text = "反例：${edge.counterexample}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED),
+                )
+            }
+        }
     }
 
     // 理解路径（第一版，单线）：提问 → 预测 → 揭示。

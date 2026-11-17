@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
  * 验证「出厂图谱 + Room 运行数据」能合成一份 UI 可用的完整图谱。
  *
  * 守护的关键不变量：
- * 1. 出厂图谱能被完整解析（24 大纲 / 22 卡片 / 36 命题 / 16 边）；
+ * 1. 出厂图谱能被完整解析（24 大纲 / 22 卡片 / 36 命题 / 38 边，其中 22 条来自增补源）；
  * 2. 状态按命题 ID 派生到命题与卡片角标上；
  * 3. **未确认的云端候选不进入图谱**；
  * 4. 已确认的云端命题能挂在对应卡片下，且标记为可删除（bundled=false）。
@@ -106,7 +106,31 @@ class GraphAssemblerTest {
         assertEquals(24, graph.outline.size)
         assertEquals(22, graph.cards.size)
         assertEquals(bundledClaims, graph.claims.size)
-        assertEquals(16, graph.edges.size)
+        assertEquals(38, graph.edges.size)
+    }
+
+    /**
+     * 补边来自增补源（`edg.sup.*`），不是 `build_graph` 的产物。
+     *
+     * 这条用例盯两件事：导出时确实把 edges 合进了 assets；每条命题都至少有一条深度边，
+     * 揭示屏的「成立边界与反例」不再有大片空白。
+     */
+    @Test
+    fun `增补的深度边被解析且每条命题都有边`() = runBlocking {
+        val merged = assembler.load(includeRuntimeClaims = false)
+
+        val backfilled = merged.edges.values.filter { it.id.startsWith("edg.sup.") }
+        assertEquals(22, backfilled.size)
+        assertTrue("补边要带条件类型", backfilled.all { it.kind.isNotBlank() })
+        assertTrue(
+            "补边要有前提或边界，否则揭示屏没有可讲的东西",
+            backfilled.all { it.premise.isNotBlank() || it.boundary.isNotBlank() }
+        )
+
+        val withoutEdge = merged.claims.values.filter { claim ->
+            merged.edges.values.none { it.from == claim.id }
+        }
+        assertTrue("这些命题仍然没有深度边：${withoutEdge.map { it.id }}", withoutEdge.isEmpty())
     }
 
     @Test
