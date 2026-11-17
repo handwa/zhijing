@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -233,6 +234,8 @@ fun ClaimJudgementView(
     onClose: () -> Unit,
     /** 还有下一条命题。false 时底部只给「完成」——避免点了没反应的假按钮。 */
     hasNext: Boolean = true,
+    /** 理解路径里点「重走这道」：回到那个干预点重答。 */
+    onReplayStep: ((interventionId: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var answered by remember(claim.id) { mutableStateOf<Boolean?>(null) }
@@ -309,7 +312,11 @@ fun ClaimJudgementView(
         } else {
             // 揭示屏：判定 → 为什么 → 条件 → 错点 → 误解
             Spacer(Modifier.height(ZjSpace.lg))
-            RevealSection(claim, judgedCorrect = answered!!)
+            RevealSection(
+                claim = claim,
+                judgedCorrect = answered!!,
+                onReplayStep = onReplayStep,
+            )
             Spacer(Modifier.height(ZjSpace.lg))
             Row(horizontalArrangement = Arrangement.spacedBy(ZjSpace.md)) {
                 if (hasNext) {
@@ -329,7 +336,11 @@ fun ClaimJudgementView(
 }
 
 @Composable
-private fun RevealSection(claim: GraphClaim, judgedCorrect: Boolean) {
+private fun RevealSection(
+    claim: GraphClaim,
+    judgedCorrect: Boolean,
+    onReplayStep: ((interventionId: String) -> Unit)? = null,
+) {
     val verdictColor = if (judgedCorrect) {
         StatusVisual.color(com.zhijing.data.model.ProbeStatus.MASTERED)
     } else {
@@ -432,6 +443,15 @@ private fun RevealSection(claim: GraphClaim, judgedCorrect: Boolean) {
                     StatusVisual.color(com.zhijing.data.model.ProbeStatus.CONFUSED)
                 },
             )
+            // 只放开「还没改过来」的步骤：已改对的重走会覆盖「原来猜 X」这条证据
+            if (!step.matched && onReplayStep != null) {
+                TextButton(
+                    onClick = { onReplayStep(step.interventionId) },
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text("重走这道", style = MaterialTheme.typography.labelSmall)
+                }
+            }
             Spacer(Modifier.height(ZjSpace.xs))
         }
         if (claim.conditionPath.size > 3) {

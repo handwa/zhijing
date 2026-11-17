@@ -132,6 +132,8 @@ internal fun GraphScreen(
     // 「现在能学」与三态分布：两段式（摘要 chip → 底部面板），不做常驻侧栏
     var showReadySheet by remember { mutableStateOf(false) }
     var showProgressSheet by remember { mutableStateOf(false) }
+    // 理解路径「重走这道」的目标干预点；null = 正常从第一题开始
+    var replayIntervention by remember { mutableStateOf<String?>(null) }
 
     if (loading || graph == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -238,6 +240,7 @@ internal fun GraphScreen(
                     selectedCardId = cardId
                     descendCardId = cardId
                     claimIndex = 0
+                    replayIntervention = null
                 },
                 modifier = Modifier.weight(1f),
             )
@@ -261,6 +264,7 @@ internal fun GraphScreen(
                 selectedNodePath = null
                 descendCardId = cardId
                 claimIndex = 0
+                replayIntervention = null
             },
         )
     }
@@ -293,9 +297,15 @@ internal fun GraphScreen(
         cardId = descendCardId,
         claimIndex = claimIndex,
         onIndexChange = { claimIndex = it },
-        onClose = { descendCardId = null },
+        onClose = {
+            descendCardId = null
+            // 重走状态必须一起清掉，否则下次进来会莫名从第 3 题开始
+            replayIntervention = null
+        },
         onJudge = onJudge,
         onProbeAnswer = onProbeAnswer,
+        probeStartAt = replayIntervention,
+        onReplayStep = { replayIntervention = it },
     )
 
     // ---- 节点搜索 ----
@@ -513,6 +523,10 @@ private fun DescendDialog(
     onClose: () -> Unit,
     onJudge: (claimId: String, correct: Boolean, misconception: String?) -> Unit,
     onProbeAnswer: (ConditionProbeSession.Answer) -> Unit,
+    /** 理解路径「重走这道」的目标干预点；null 表示正常从头走。 */
+    probeStartAt: String? = null,
+    /** 点路径里某一步 → 回到那道干预题。 */
+    onReplayStep: (interventionId: String) -> Unit = {},
 ) {
     val card = cardId?.let { id -> graph.cards.firstOrNull { it.id == id } }
     if (card == null || card.claims.isEmpty()) return
@@ -531,19 +545,25 @@ private fun DescendDialog(
 
     // 深度 probe：三元组存在时先走「预测→揭示」，走完再回到原来的判断题面板。
     // 没有 triples 的卡片行为完全不变（probe.hasQuestions == false）。
-    // 已经拨过的干预点：重新下钻时跳过，直接进入判断题。
-    // 从 conditionPath 反推（每次作答都会留一步），不额外查库。
-    val answeredInterventions = remember(graph) {
-        graph.claims.values
-            .flatMap { it.conditionPath }
-            .map { it.interventionId }
-            .toSet()
+    //
+    // 已经拨过的干预点：**打开弹窗时**快照一次并跳过，直接进入判断题。
+    // 必须快照而不是实时跟随图谱：作答会触发重新 load，`answeredInterventions` 变大，
+    // 实时计算会让会话被重建——刚答完的那题的揭示屏会当场消失，直接跳到下一题。
+    val skippedBeforeOpen = remember(card.id) {
+        graph.claims.values.flatMap { it.conditionPath }.map { it.interventionId }.toSet()
     }
-    val probe = remember(card.id, graph.triples, answeredInterventions) {
+    // 「重走这道」时，目标那道必须**不被跳过**，否则会话一上来就是 Done
+    val skipForSession = if (probeStartAt == null) {
+        skippedBeforeOpen
+    } else {
+        skippedBeforeOpen - probeStartAt
+    }
+    val probe = remember(card.id, graph.triples, probeStartAt) {
         ConditionProbeSession.forCard(
             triples = graph.triples,
             cardId = card.id,
-            skipInterventionIds = answeredInterventions,
+            skipInterventionIds = skipForSession,
+            startAt = probeStartAt,
         ).also { session ->
             // 出题数为 0 是排查「为什么没出题」的第一手信息（旧包 / 卡片 id 对不上 / 数据没过门槛）
             android.util.Log.i(
@@ -629,6 +649,7 @@ private fun DescendDialog(
                                 onNext = { if (claimIndex + 1 < ordered.size) onIndexChange(claimIndex + 1) },
                                 onClose = onClose,
                                 hasNext = claimIndex + 1 < ordered.size,
+                                onReplayStep = onReplayStep,
                             )
                         }
                     }
