@@ -1,7 +1,8 @@
 {
   "meta": {
     "description": "随包深度内容的增补源：卡片级前置关系 + 条件三元组。由 export.py 在导出 assets 时合并进 graph.json，不进 build_graph 的产物（kg/data/out/graph.json）。",
-    "authoredAt": "2026-11-15"
+    "authoredAt": "2026-11-15",
+    "updatedAt": "2026-11-17"
   },
   "prerequisites": [
     {
@@ -883,6 +884,408 @@
               "predicted": "HOLDS",
               "why": "以为只要还在比较预测和 one-hot，就是同一件事",
               "correction": "损失换了梯度就换了：MSE 的梯度比交叉熵多乘了 p·(1−p) 两个因子"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.ce-logits.1",
+      "claimId": "clm.arch.ffn.ce-logits.5a91",
+      "cardId": "crd.s1-4",
+      "statement": "CrossEntropy 的输入必须是未归一化的 logits",
+      "kind": "range",
+      "mechanism": "CrossEntropy 内部做 log-softmax：先对 logits 求 log-sum-exp 再取负对数。若外面已经做过 softmax，输入落进 (0,1) 的窄区间，内部再做 log 相当于对概率取对数，前向数值看似接近，反向梯度被额外乘上 p(1-p)，收敛会明显变慢。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.ce.logits",
+          "action": "输入保持未归一化的 logits",
+          "outcome": "HOLDS",
+          "consequence": "内部 log-softmax 只做一次归一化，梯度正确",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为框架要求输入已经是概率",
+              "correction": "框架吃的是 logits；自己再 softmax 会变成两次归一化"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce.probs",
+          "action": "输入改成已经过 Softmax 的概率",
+          "outcome": "FAILS",
+          "consequence": "输入不再是 logits，前向近似但梯度被压缩",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "只看 loss 数值接近就认为等价",
+              "correction": "数值接近掩盖了梯度差异：p(1-p) 让回传信号变小"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce.temperature",
+          "action": "把 logits 整体乘 0.1（等价于改温度）",
+          "outcome": "WEAKENED",
+          "consequence": "仍然是 logits，成立；但分布被压平，等于悄悄改了温度",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为乘个常数不影响结论",
+              "correction": "结论仍成立，但语义变了：这不是普通的 logits，而是被调过温度的那份"
+            }
+          ]
+        },
+        {
+          "id": "inv.ce.huge",
+          "action": "把 logits 整体放大 100 倍",
+          "outcome": "WEAKENED",
+          "consequence": "仍是 logits，成立；但 softmax 极度饱和，梯度几乎为 0",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "看到数值溢出就以为前提被破坏",
+              "correction": "log-sum-exp 的实现就是为了扛住这种量级；前提没坏，只是更容易饱和"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.bn-small-batch.1",
+      "claimId": "clm.arch.dep.bn-small-batch.b33d",
+      "cardId": "crd.s2-3",
+      "statement": "BatchNorm 的稳定性取决于 batch 维的统计量是否可靠",
+      "kind": "statistics",
+      "mechanism": "BatchNorm 在 batch 维上算均值与方差。batch=1 时方差恒为 0，归一化退化成减均值再除以 eps；训练时的滑动方差也会被这一次的 0 拉偏，推理阶段用的是被污染的估计。LayerNorm 不跨 batch 求统计，所以没有这个前提。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.bn.batch-1",
+          "action": "把 batch 从 32 改成 1",
+          "outcome": "FAILS",
+          "consequence": "批内方差为 0，归一化退化为减均值，训练统计量失真",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为 batch 只是速度参数",
+              "correction": "BN 的统计量是沿 batch 维算的；batch=1 时这一维没有方差可算"
+            }
+          ]
+        },
+        {
+          "id": "inv.bn.batch-4",
+          "action": "把 batch 从 32 改成 4",
+          "outcome": "WEAKENED",
+          "consequence": "还能算，但方差估计噪声很大，稳定性明显下降",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为只要不是 1 就没问题",
+              "correction": "小 batch 的方差估计本身就有偏，结论被削弱而不是消失"
+            }
+          ]
+        },
+        {
+          "id": "inv.bn.batch-256",
+          "action": "把 batch 从 32 改成 256",
+          "outcome": "HOLDS",
+          "consequence": "统计量更可靠，'稳定性依赖 batch 统计量'这条结论成立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为加大 batch 会破坏 BN 的前提",
+              "correction": "结论说的是依赖统计量可靠性；batch 越大越可靠"
+            }
+          ]
+        },
+        {
+          "id": "inv.bn.to-layernorm",
+          "action": "把归一化换成 LayerNorm",
+          "outcome": "BECOMES_OTHER",
+          "consequence": "换成另一条命题：归一化维度从 batch 变成特征维，前提不再成立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为换名字不影响结论",
+              "correction": "BN 与 LN 统计的维度不同，前提整条换了"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.relu-then-softmax.1",
+      "claimId": "clm.arch.dep.relu-then-softmax.d07e",
+      "cardId": "crd.s2-5",
+      "statement": "形状相容不等于语义相容：ReLU 之后直接接 Softmax 不构成合法的分类头",
+      "kind": "shape",
+      "mechanism": "ReLU 保持形状，所以形状依赖永远满足；但它把负半轴压成 0，输出全非负。Softmax 期望的是可正可负的 logits：全非负输入会让分布缺少对比度，而且负半轴携带的信息在进入 Softmax 前就已经丢了。形状对了，语义没对。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.relu-softmax.direct",
+          "action": "保持 ReLU 后直接接 Softmax",
+          "outcome": "FAILS",
+          "consequence": "形状通过、语义不通过：输出不是 logits，负半轴信息已丢",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "看到形状对得上就认为可以接",
+              "correction": "形状约束只保证能算，不保证算出来的东西有意义"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu-softmax.drop-relu",
+          "action": "去掉 ReLU，直接送 logits 给 Softmax",
+          "outcome": "HOLDS",
+          "consequence": "此时 Softmax 收到的是合法 logits，做法成立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为分类头必须夹一个激活",
+              "correction": "分类头通常不需要中间激活，直接 logits 才是标准做法"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu-softmax.c1",
+          "action": "把类别数 C 改成 1",
+          "outcome": "FAILS",
+          "consequence": "Softmax 恒输出 1，完全没有区分度",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为少了类别只是输出短了",
+              "correction": "C=1 时 softmax 的分母只有一项，概率恒为 1"
+            }
+          ]
+        },
+        {
+          "id": "inv.relu-softmax.leaky",
+          "action": "把 ReLU 换成 LeakyReLU",
+          "outcome": "WEAKENED",
+          "consequence": "负半轴保留了一点信息，但输出仍不是 logits；结论被削弱而非翻盘",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为留住负值就够了",
+              "correction": "LeakyReLU 仍是非线性压缩，输出不是未归一化的 logits"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.attn-no-scale.1",
+      "claimId": "clm.arch.attn.no-scale.1418",
+      "cardId": "crd.s4-1",
+      "statement": "点积注意力必须按 sqrt(d_k) 缩放，否则 Softmax 会饱和",
+      "kind": "statistics",
+      "mechanism": "q·k 是 d_k 项乘积之和，元素独立同分布时方差随 d_k 线性增长、标准差按 sqrt(d_k) 增长。不除 sqrt(d_k)，logits 量级随 d_k 放大，Softmax 进入饱和区：一端概率接近 1、其余接近 0，梯度趋近 0，训练几乎推不动。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.attn.no-scale.dk-512",
+          "action": "d_k 从 64 改成 512 且不缩放",
+          "outcome": "FAILS",
+          "consequence": "标准差约放大到 8 倍，Softmax 饱和，梯度接近 0",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为分布更尖锐就是更自信、效果更好",
+              "correction": "尖锐到一定程度梯度就消失了，模型学不动"
+            }
+          ]
+        },
+        {
+          "id": "inv.attn.no-scale.dk-4",
+          "action": "d_k 从 64 改成 4 且不缩放",
+          "outcome": "WEAKENED",
+          "consequence": "量级只放大 2 倍，影响变小；结论仍偏向成立，但危害不明显",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为不缩放一定出错",
+              "correction": "缩放的必要性随 d_k 增长；d_k 很小时不缩放几乎无害"
+            }
+          ]
+        },
+        {
+          "id": "inv.attn.no-scale.restore",
+          "action": "恢复除以 sqrt(d_k)",
+          "outcome": "HOLDS",
+          "consequence": "logits 方差被拉回常数，Softmax 不饱和",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为除以 sqrt(d_k) 只是经验技巧",
+              "correction": "除法的作用是把方差固定住，是量纲上的必要步骤"
+            }
+          ]
+        },
+        {
+          "id": "inv.attn.no-scale.fixed-temp",
+          "action": "用一个固定常数（如 1/8）代替 sqrt(d_k)",
+          "outcome": "FAILS",
+          "consequence": "d_k 变化时固定常数对不上，量级重新失控",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为随便找个缩放系数都行",
+              "correction": "缩放系数必须跟着 d_k 走，固定值只在特定 d_k 下成立"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.attn-mask-after.1",
+      "claimId": "clm.arch.attn.mask-after.ca87",
+      "cardId": "crd.s4-2",
+      "statement": "掩码必须在 Softmax 之前，顺序反过来不等价",
+      "kind": "statistics",
+      "mechanism": "Softmax 的分母是整行指数和。先 Softmax 再对未来位置乘 0，分母里仍然含有未来位置的贡献，被置 0 的那些概率质量不会重新分配给合法位置，剩余概率之和小于 1。先掩码（置 -inf）再 Softmax，未来位置从一开始就不进分母。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.mask.after",
+          "action": "先 Softmax 再把未来位置乘 0",
+          "outcome": "FAILS",
+          "consequence": "分母已含未来位置，行和小于 1，归一化被污染",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为乘 0 就等于没算",
+              "correction": "乘 0 只改输出，不改已经算进分母的那部分"
+            }
+          ]
+        },
+        {
+          "id": "inv.mask.before",
+          "action": "先把未来位置置 -inf 再 Softmax",
+          "outcome": "HOLDS",
+          "consequence": "未来位置不进分母，等价于在合法位置上重新归一化",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为掩码只是把值改小",
+              "correction": "-inf 让指数为 0，从分母里彻底消失，这才是掩码"
+            }
+          ]
+        },
+        {
+          "id": "inv.mask.zero-before",
+          "action": "先把未来位置置 0 再 Softmax",
+          "outcome": "FAILS",
+          "consequence": "0 的指数是 1，仍会分走概率质量，与先掩码不等价",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为置 0 比乘 0 更彻底",
+              "correction": "Softmax 的零点是 -inf，不是 0；置 0 反而让未来位置拿到权重"
+            }
+          ]
+        },
+        {
+          "id": "inv.mask.step-decode",
+          "action": "增量解码（未来位置本就不存在）",
+          "outcome": "HOLDS",
+          "consequence": "没有未来位置可掩，两种顺序结果相同",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为这条顺序问题永远存在",
+              "correction": "自回归逐步解码时行里只有已生成的位置，掩码无事可做"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tri.mha-heads-share-input.1",
+      "claimId": "clm.arch.attn.mha-heads-independent.b0da",
+      "cardId": "crd.s4-3",
+      "statement": "多头注意力共享同一份输入，各头只是投影不同",
+      "kind": "shape",
+      "mechanism": "多头把 d_model 切成 h 份并行做注意力：每个头用自己的 W_q/W_k/W_v 从**同一份输入**投影，输出拼接后再过一个线性层。参数量约等于单头，输入只有一份 —— 所以头不独立，它们在同一表示的不同子空间上工作。",
+      "computable": false,
+      "interventions": [
+        {
+          "id": "inv.mha.shared-input",
+          "action": "各头都从同一份输入做投影",
+          "outcome": "FAILS",
+          "consequence": "输入共享，'互不共享输入'不成立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为每个头有自己的权重就等于独立模型",
+              "correction": "独立的只是投影矩阵，输入与输出映射都是共享的"
+            }
+          ]
+        },
+        {
+          "id": "inv.mha.separate-input",
+          "action": "每个头吃不同来源的输入（如不同模态）",
+          "outcome": "HOLDS",
+          "consequence": "此时各头确实独立，命题在这类结构下成立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "FAILS",
+              "why": "以为多头在任何情况下都共享输入",
+              "correction": "跨模态多头可以各吃一份输入，命题的适用边界在这里"
+            }
+          ]
+        },
+        {
+          "id": "inv.mha.single-head",
+          "action": "把头数 h 改成 1",
+          "outcome": "WEAKENED",
+          "consequence": "退化为单头，'各头独立'无从谈起，结论被削弱",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "以为单头也满足描述",
+              "correction": "h=1 时不存在'各头'，命题失去讨论对象"
+            }
+          ]
+        },
+        {
+          "id": "inv.mha.concat-proj",
+          "action": "各头输出拼接后再过同一个线性层",
+          "outcome": "FAILS",
+          "consequence": "输出侧共享一个投影，进一步说明各头不独立",
+          "source": "AUTHORED_HUMAN",
+          "misjudgements": [
+            {
+              "predicted": "HOLDS",
+              "why": "只看输入侧就下结论",
+              "correction": "输入共享 + 输出共享，两头都指向'不独立'"
             }
           ]
         }

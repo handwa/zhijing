@@ -47,13 +47,27 @@ class BundledTriplesTest {
         assertTrue("prerequisites 不应为空", graph.prerequisites.isNotEmpty())
     }
 
+    /**
+     * 第二批：又补了 6 条命题（交叉熵 / BN 小 batch / ReLU 接 Softmax / 注意力缩放 / 掩码顺序 / 多头共享输入）。
+     *
+     * 这 6 条全部是**预置答案**（`computable = false`）：现有契约引擎只能表达维度与轴对齐，
+     * 写不出「梯度被压缩」「分母含未来位置」这类机制。按项目约定，宁可用预置答案，
+     * 也不硬编一个看着像能算的契约。
+     */
     @Test
-    fun bundledTriplesCoverSixClaimsAndTwentyFourInterventions() {
+    fun bundledTriplesCoverTwelveClaimsAndFortyEightInterventions() {
         val triples = loadGraph().triples
 
-        assertEquals("三元组条数", 6, triples.size)
-        assertEquals("干预点总数", 24, triples.sumOf { it.interventions.size })
-        assertEquals("覆盖的命题数", 6, triples.map { it.claimId }.distinct().size)
+        assertEquals("三元组条数", 12, triples.size)
+        assertEquals("干预点总数", 48, triples.sumOf { it.interventions.size })
+        assertEquals("覆盖的命题数", 12, triples.map { it.claimId }.distinct().size)
+        // 每条至少两个干预点：一个太少，用户拨不出「边界」的感觉
+        triples.forEach { triple ->
+            assertTrue(
+                "三元组 ${triple.id} 干预点太少（${triple.interventions.size}）",
+                triple.interventions.size >= 2,
+            )
+        }
     }
 
     @Test

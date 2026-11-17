@@ -104,9 +104,11 @@ class TestPipeline(unittest.TestCase):
             for inv in t["interventions"]:
                 self.assertTrue(inv["misjudgements"], f"干预点缺误判库：{inv['id']}")
 
-        # 语料更新后这些数字不该悄悄变
-        self.assertEqual(len(supplement["triples"]), 6)
-        self.assertEqual(sum(len(t["interventions"]) for t in supplement["triples"]), 24)
+        # 语料更新后这些数字不该悄悄变。
+        # 第二批又补了 6 条（交叉熵 / BN 小 batch / ReLU 接 Softmax / 缩放 / 掩码顺序 / 多头共享输入），
+        # 每条 4 个干预点，全部是预置答案（契约引擎表达不了这些机制）。
+        self.assertEqual(len(supplement["triples"]), 12)
+        self.assertEqual(sum(len(t["interventions"]) for t in supplement["triples"]), 48)
 
     def test_idempotent_build(self):
         """连跑两次 build，产物应一致（忽略 generatedAt 时间戳）—— 哈希稳定性的最高层验证。"""
