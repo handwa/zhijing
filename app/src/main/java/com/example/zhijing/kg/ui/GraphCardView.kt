@@ -451,6 +451,16 @@ private fun RevealSection(
     if (claim.conditionPath.isNotEmpty()) {
         Spacer(Modifier.height(ZjSpace.md))
         SectionTitle("你的理解路径")
+        // 一句话主干：明细是逐条念的，读完记不住自己变了什么。
+        // 没有变化（只答一次 / 首末相同）时返回 null，不渲染。
+        PathSummary.of(claim.conditionPath)?.let { summary ->
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(ZjSpace.xs))
+        }
         claim.conditionPath.take(3).forEach { step ->
             Text(
                 text = "提问：${step.action}",
