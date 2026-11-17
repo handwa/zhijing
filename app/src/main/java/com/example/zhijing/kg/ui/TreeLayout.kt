@@ -482,11 +482,18 @@ object TreeLayout {
                     0f
                 }
 
+                // 车道两端落在**侧边中点**：箭头指在节点右边缘上，
+                // 不再沿上边缘横穿到节点中心（那样箭头会浮在卡片里面/边上，读数很别扭）
+                val lineStartX = if (longJump) from.x + from.width else startX
+                val lineStartY = if (longJump) from.y + from.height / 2f else startY
+                val lineEndX = if (longJump) to.x + to.width else endX
+                val lineEndY = if (longJump) to.y + to.height / 2f else endY
+
                 lines += Line(
-                    fromX = startX,
-                    fromY = startY,
-                    toX = endX,
-                    toY = endY,
+                    fromX = lineStartX,
+                    fromY = lineStartY,
+                    toX = lineEndX,
+                    toY = lineEndY,
                     style = when (link.kind) {
                         PrerequisiteKind.REQUIRED -> Line.Style.PREREQUISITE_REQUIRED
                         PrerequisiteKind.RECOMMENDED -> Line.Style.PREREQUISITE_RECOMMENDED

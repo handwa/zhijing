@@ -26,12 +26,20 @@ class LaneLayoutTest {
         val dep = layout.lines.single { it.style == Line.Style.PREREQUISITE_REQUIRED }
         val source = layout.nodes.single { it.nodePath == dep.fromNode }
 
+        val target = layout.nodes.single { it.nodePath == dep.toNode }
+
         assertEquals(Line.Route.LANE, dep.route)
         // 车道横坐标必须大于**同一列**所有节点的右边界
         val columnRight = layout.nodes
             .filter { it.x == source.x }
             .maxOf { it.x + it.width }
         assertTrue("车道 ${dep.ctrlX} 应在列右边界 $columnRight 之外", dep.ctrlX > columnRight)
+
+        // 两端落在侧边中点：箭头指在节点右边缘上，不再横穿到节点中心
+        assertEquals(source.x + source.width, dep.fromX)
+        assertEquals(source.y + source.height / 2f, dep.fromY)
+        assertEquals(target.x + target.width, dep.toX)
+        assertEquals(target.y + target.height / 2f, dep.toY)
     }
 
     @Test

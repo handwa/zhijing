@@ -424,6 +424,14 @@ fun GraphTreeView(
     }
 }
 
+/**
+ * 依赖线统一粗细（dp）。
+ *
+ * 三种关系靠颜色与虚实区分，不靠粗细：粗细不一致时，读者会以为"更粗=更重要"，
+ * 而实际上推荐前置与后续只是关系类型不同。
+ */
+private const val DEPENDENCY_LINE_WIDTH = 3f
+
 /** 点亮扩散动画时长：够被看见，又不至于让人等。 */
 private const val LIT_ANIMATION_MS = 320
 
@@ -599,9 +607,8 @@ private fun DrawScope.drawLines(
             (line.fromNode == selectedNode || line.toNode == selectedNode)
         val hierarchyAlpha = if (selectedNode == null || related) 1f else 0.35f
 
-        // 跨章节依赖：保留，但降一档透明度与线宽 —— 它不该和「同一章的下一步」同权重
+        // 跨章节依赖：只降透明度，不改线宽 —— 粗细统一，靠颜色与透明度区分权重
         val crossAlpha = if (line.crossChapter) 0.5f else 1f
-        val crossWidth = if (line.crossChapter) 0.7f else 1f
 
         val path = linePath(line)
         when (role) {
@@ -615,7 +622,7 @@ private fun DrawScope.drawLines(
                 drawPath(
                     path = path,
                     color = GraphLineColors.required.copy(alpha = crossAlpha),
-                    style = Stroke(width = 3f * unit * crossWidth),
+                    style = Stroke(width = DEPENDENCY_LINE_WIDTH * unit),
                 )
                 drawArrowHead(
                     color = GraphLineColors.required,
@@ -631,14 +638,14 @@ private fun DrawScope.drawLines(
             EdgePresentation.Role.RECOMMENDED -> drawPath(
                 path = path,
                 color = GraphLineColors.recommended.copy(alpha = crossAlpha),
-                style = Stroke(width = 2f * unit * crossWidth, pathEffect = dashWide),
+                style = Stroke(width = DEPENDENCY_LINE_WIDTH * unit, pathEffect = dashWide),
             )
 
             EdgePresentation.Role.SUCCESSOR -> {
                 drawPath(
                     path = path,
                     color = GraphLineColors.successor.copy(alpha = crossAlpha),
-                    style = Stroke(width = 3f * unit * crossWidth),
+                    style = Stroke(width = DEPENDENCY_LINE_WIDTH * unit),
                 )
                 drawArrowHead(
                     color = GraphLineColors.successor,
