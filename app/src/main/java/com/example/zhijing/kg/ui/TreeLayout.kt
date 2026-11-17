@@ -54,6 +54,18 @@ object TreeLayout {
      */
     const val ROW_GAP = 28f
 
+    /** 车道与列右边缘的距离。 */
+    private const val LANE_GAP = 10f
+
+    /** 同一列有多条长跳时，车道依次外推的间距。 */
+    private const val LANE_STEP = 8f
+
+    /** 每列最多复用几条车道；再多就该拆依赖了。 */
+    private const val LANE_SLOTS = 3
+
+    /** 有车道时给内容宽度留的余量，否则车道会被平移钳制裁掉。 */
+    private const val LANE_RESERVE = 40f
+
     /** 行高：只按节点高度算 —— 卡片已删除，不要把卡片高度算进来。 */
     const val ROW_HEIGHT = HEADER_HEIGHT + ROW_GAP
 
@@ -107,6 +119,13 @@ object TreeLayout {
         val descendable: Boolean,
         /** 该节点直接挂的卡片 id；弹窗据此取内容。 */
         val cardIds: List<String>,
+        /**
+         * 所属章节（一级大纲节点）的 path；主题根与章节自己是自己。
+         *
+         * 布局期算好，是因为「跨章节依赖要淡化」只有这里知道父子关系；
+         * 放到绘制层再反查就等于维护第二份「path → 章节」映射。
+         */
+        val chapterPath: String,
     )
 
     /** 一条连线。 */
@@ -137,6 +156,13 @@ object TreeLayout {
          */
         val ctrlX: Float = 0f,
         val ctrlY: Float = 0f,
+        /**
+         * 两端是否分属不同章节。
+         *
+         * 跨章节依赖在选中时会被淡化一档：它仍然存在（不能删），
+         * 但不该和「同一章里的下一步」抢同样的视觉权重。
+         */
+        val crossChapter: Boolean = false,
     ) {
         /**
          * 连线样式。
@@ -156,7 +182,11 @@ object TreeLayout {
          * - [ELBOW]：正交折线，与层级线同一套走法（必须前置跨列时复用它，少一种线型）
          * - [CURVE]：二次贝塞尔，控制点见 [ctrlX] / [ctrlY]
          */
-        enum class Route { STRAIGHT, ELBOW, CURVE }
+        /**
+         * [LANE]：列外车道。同列长跳（中间隔着节点）走出列→沿槽下行→回车，
+         * 不再从中间卡片底下穿过（那样只剩断断续续的线段，读不出依赖）。
+         */
+        enum class Route { STRAIGHT, ELBOW, CURVE, LANE }
     }
 
     /** 一次布局的完整结果。 */
@@ -296,7 +326,15 @@ object TreeLayout {
             // ---- 第二遍：按行号放置节点 ----
             var deepestRight = groupLeft
 
-            fun place(node: GraphOutlineNode, depth: Int, parentNode: Node?) {
+            /**
+             * @param chapterPath 所属章节 path；depth == 1 的节点自己就是章节
+             */
+            fun place(
+                node: GraphOutlineNode,
+                depth: Int,
+                parentNode: Node?,
+                chapterPath: String,
+            ) {
                 val x = groupLeft + depth * LEVEL_WIDTH
                 val y = treeTop + rowOf[node.id]!! * ROW_HEIGHT
 
@@ -315,6 +353,7 @@ object TreeLayout {
                     // 有卡片就能点开看内容；没有卡片的组织性节点置灰
                     descendable = cards.isNotEmpty(),
                     cardIds = cards.map { it.id },
+                    chapterPath = chapterPath,
                 )
                 nodes += self
                 positionOf[node.path] = self
@@ -331,15 +370,22 @@ object TreeLayout {
                         fromNode = parentNode.nodePath,
                         toNode = node.path,
                         route = Line.Route.ELBOW,
+                        crossChapter = parentNode.chapterPath != chapterPath,
                     )
                 }
 
                 node.children.sortedBy { it.order }.forEach { child ->
-                    place(child, depth + 1, self)
+                    // 章节 = topic 的直接子节点；再深的节点继承上一层的章节
+                    place(
+                        node = child,
+                        depth = depth + 1,
+                        parentNode = self,
+                        chapterPath = if (depth == 0) child.path else chapterPath,
+                    )
                 }
             }
 
-            place(topic, depth = 0, parentNode = null)
+            place(topic, depth = 0, parentNode = null, chapterPath = topic.path)
 
             val contentBottom = treeTop + maxOf(nextRow, 1f) * ROW_HEIGHT
             groups += Group(
@@ -366,6 +412,15 @@ object TreeLayout {
         // 0 条自环（两端同节点）、0 条重复。
         val nodeOfCard = HashMap<String, String>()
         graph.cards.forEach { nodeOfCard[it.id] = it.outlinePath }
+
+        // 列外车道：同列长跳要绕开中间节点，只能借这一列右侧的空白。
+        // 先记下每列最右边界，再给同列多条长跳依次外推，避免两条车道互相压。
+        val columnRight = HashMap<Float, Float>()
+        positionOf.values.forEach { node ->
+            columnRight[node.x] = max(columnRight[node.x] ?: 0f, node.x + node.width)
+        }
+        val laneUsed = HashMap<Float, Int>()
+        var laneCount = 0
 
         val seenPrereq = HashSet<String>()
         graph.cards.forEach { card ->
@@ -396,21 +451,36 @@ object TreeLayout {
                 val endX = if (sameColumn) to.x + to.width / 2 else to.x
                 val endY = if (sameColumn) to.y else to.y + to.height / 2
 
+                // 同列长跳（中间隔着节点）：走列外车道，否则线从中间卡片底下穿过，
+                // 屏幕上只剩断断续续的线段，用户读不出「谁依赖谁」。
+                //
+                // 判据用**节点顶部的行距**而不是两个端点：端点还包含节点高度，
+                // 相邻两行算出来是 ROW_HEIGHT - HEADER_HEIGHT，会把两行间距误判成相邻。
+                val longJump = sameColumn && abs(to.y - from.y) > ROW_HEIGHT * 1.5f
                 val route = when {
+                    longJump -> Line.Route.LANE
                     sameColumn -> Line.Route.CURVE
                     required -> Line.Route.ELBOW
                     else -> Line.Route.CURVE
                 }
                 val bulge = when {
                     // 同列相邻：小弧（10dp），在 28dp 的缝隙里绕一下就够
-                    sameColumn && abs(endY - startY) <= ROW_HEIGHT * 1.5f -> 10f
-                    // 同列长跳：大弧（40dp）。仍然是从节点底下穿过去 ——
-                    // 想完全绕开中间节点得走列外车道，那是下一步的事，这里只求"看得出是弧"。
-                    sameColumn -> 40f
+                    sameColumn -> 10f
                     // 跨列虚线：浅弧，别和层级折线共用通道
                     else -> 14f
                 }
                 val ctrl = curveControl(startX, startY, endX, endY, bulge)
+
+                // 车道横坐标：该列最右 + 10dp，同列第 n 条再往外推 8dp（3 条一循环）
+                val laneX = if (longJump) {
+                    val right = columnRight[from.x] ?: (from.x + from.width)
+                    val index = laneUsed[from.x] ?: 0
+                    laneUsed[from.x] = index + 1
+                    laneCount += 1
+                    right + LANE_GAP + (index % LANE_SLOTS) * LANE_STEP
+                } else {
+                    0f
+                }
 
                 lines += Line(
                     fromX = startX,
@@ -424,8 +494,9 @@ object TreeLayout {
                     fromNode = fromPath,
                     toNode = toPath,
                     route = route,
-                    ctrlX = ctrl.first,
-                    ctrlY = ctrl.second,
+                    ctrlX = if (longJump) laneX else ctrl.first,
+                    ctrlY = if (longJump) 0f else ctrl.second,
+                    crossChapter = from.chapterPath != to.chapterPath,
                 )
             }
         }
@@ -449,11 +520,13 @@ object TreeLayout {
                     style = Line.Style.CROSS,
                     fromNode = fromPath,
                     toNode = toPath,
+                    crossChapter = from.chapterPath != to.chapterPath,
                 )
             }
         }
 
-        val contentWidth = maxRight + PADDING * 2
+        // 有车道就把右侧余量放大，否则最外那条车道会被平移钳制当成「内容外」裁掉
+        val contentWidth = maxRight + PADDING * 2 + if (laneCount > 0) LANE_RESERVE else 0f
         val contentHeight = groupTop
         return Result(nodes, lines, contentWidth, contentHeight, groups)
     }

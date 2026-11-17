@@ -363,7 +363,7 @@ fun GraphTreeView(
             // 没有选中时不画依赖线，图例也不该列出三种线让人找不到 ——
             // 先告诉用户"点一下就有了"，选中之后再解释线型。
             val legend = when {
-                selectedNode != null -> "▬ 必须前置（暗红）　┅ 推荐前置（暖橙）　▬ 后续（蓝）"
+                selectedNode != null -> "▬ 必须前置（暗红）　┅ 推荐前置（暖橙）　▬ 后续（蓝）　跨章节已淡化"
                 // 依赖视图本身就在展示依赖，图例不能还写"点一下才有"
                 dependencyOnly -> "▬ 必须前置（暗红）　┅ 推荐前置（暖橙）"
                 else -> "点击卡片查看前置与后续关系"
@@ -552,6 +552,10 @@ private fun DrawScope.drawLines(
             (line.fromNode == selectedNode || line.toNode == selectedNode)
         val hierarchyAlpha = if (selectedNode == null || related) 1f else 0.35f
 
+        // 跨章节依赖：保留，但降一档透明度与线宽 —— 它不该和「同一章的下一步」同权重
+        val crossAlpha = if (line.crossChapter) 0.5f else 1f
+        val crossWidth = if (line.crossChapter) 0.7f else 1f
+
         val path = linePath(line)
         when (role) {
             EdgePresentation.Role.HIERARCHY -> drawPath(
@@ -563,8 +567,8 @@ private fun DrawScope.drawLines(
             EdgePresentation.Role.REQUIRED -> {
                 drawPath(
                     path = path,
-                    color = GraphLineColors.required,
-                    style = Stroke(width = 3f * unit),
+                    color = GraphLineColors.required.copy(alpha = crossAlpha),
+                    style = Stroke(width = 3f * unit * crossWidth),
                 )
                 drawArrowHead(
                     color = GraphLineColors.required,
@@ -579,15 +583,15 @@ private fun DrawScope.drawLines(
             // 推荐前置**不给箭头**：箭头是"这条依赖成立"的断言，建议性的关系不该有方向感。
             EdgePresentation.Role.RECOMMENDED -> drawPath(
                 path = path,
-                color = GraphLineColors.recommended,
-                style = Stroke(width = 2f * unit, pathEffect = dashWide),
+                color = GraphLineColors.recommended.copy(alpha = crossAlpha),
+                style = Stroke(width = 2f * unit * crossWidth, pathEffect = dashWide),
             )
 
             EdgePresentation.Role.SUCCESSOR -> {
                 drawPath(
                     path = path,
-                    color = GraphLineColors.successor,
-                    style = Stroke(width = 3f * unit),
+                    color = GraphLineColors.successor.copy(alpha = crossAlpha),
+                    style = Stroke(width = 3f * unit * crossWidth),
                 )
                 drawArrowHead(
                     color = GraphLineColors.successor,
@@ -668,6 +672,15 @@ private fun linePath(line: TreeLayout.Line): Path {
             path.quadraticBezierTo(line.ctrlX, line.ctrlY, line.toX, line.toY)
         }
 
+        // 列外车道：出列 → 沿槽下行 → 回车。中间节点不再压住线。
+        TreeLayout.Line.Route.LANE -> {
+            val laneX = line.ctrlX
+            path.moveTo(line.fromX, line.fromY)
+            path.lineTo(laneX, line.fromY)
+            path.lineTo(laneX, line.toY)
+            path.lineTo(line.toX, line.toY)
+        }
+
         TreeLayout.Line.Route.STRAIGHT -> {
             path.moveTo(line.fromX, line.fromY)
             path.lineTo(line.toX, line.toY)
@@ -684,6 +697,9 @@ private fun linePath(line: TreeLayout.Line): Path {
  */
 private fun arrowAnchor(line: TreeLayout.Line): Offset = when (line.route) {
     TreeLayout.Line.Route.CURVE -> Offset(line.ctrlX, line.ctrlY)
+
+    // 车道最后一段是水平回车，箭头按水平方向摆
+    TreeLayout.Line.Route.LANE -> Offset(line.ctrlX, line.toY)
     TreeLayout.Line.Route.ELBOW -> Offset(
         line.fromX + (line.toX - line.fromX) * 0.5f,
         line.toY,
