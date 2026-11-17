@@ -146,6 +146,9 @@ internal fun GraphScreen(
     // 统计行与结构图共用这一份结果，避免两处各算一次后数字对不上。
     val skill = remember(graph) { SkillProgress.of(graph) }
 
+    // 前置解释要把 cardId 翻成标题：随图谱缓存一次，避免在列表项里逐个找卡片
+    val cardTitles = remember(graph) { graph.cards.associate { it.id to it.title } }
+
     // 大纲筛选在 GraphCardList 内部完成（它才是真正渲染卡片的地方）。
     // 这里原来有一份同样的 visibleCards，筛选修好后它就没人用了；
     // 留着会让读代码的人以为筛选仍带 `claims.isNotEmpty()` 那个失效条件，故删除。
@@ -258,6 +261,7 @@ internal fun GraphScreen(
                 ?: selectedPath,
             cards = nodeCards,
             skill = skill,
+            cardTitles = cardTitles,
             onResetCard = onResetCard,
             onDismiss = { selectedNodePath = null },
             onDescend = { cardId ->
@@ -954,6 +958,9 @@ private fun collectPaths(node: GraphOutlineNode?): Set<String> {
  * 只画颜色不够：一张卡有 2 条命题时，答完 1 条不会点亮（阈值 80%），
  * 用户看到的是「我答了但没反应」。这里把「练了几条、还差几条、有几条易错」写出来。
  */
+/** 节点详情里最多显示几条前置：再多面板就变成依赖列表了。 */
+private const val MAX_PREREQ_LINES = 3
+
 private fun cardStateLine(progress: SkillProgress.CardProgress): String {
     val base = when (progress.state) {
         SkillProgress.State.LIT -> "已点亮"
@@ -1011,6 +1018,8 @@ private fun NodeDetailSheet(
     title: String,
     cards: List<GraphCard>,
     skill: SkillProgress.Result,
+    /** cardId → 标题，用来把前置的 `from` 翻成可读标题。 */
+    cardTitles: Map<String, String>,
     onResetCard: (cardId: String) -> Unit,
     onDismiss: () -> Unit,
     onDescend: (cardId: String) -> Unit,
@@ -1105,6 +1114,32 @@ private fun NodeDetailSheet(
                                     Text(
                                         "清空这张卡的记录",
                                         style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+
+                            // 前置依赖：为什么必须先学那张卡。
+                            // 数据一直都有（reason / source），缺的只是出口 ——
+                            // 不显示时，用户只看到「未解锁」，不知道被什么挡住。
+                            if (card.prerequisites.isNotEmpty()) {
+                                Spacer(Modifier.height(6.dp))
+                                card.prerequisites.take(MAX_PREREQ_LINES).forEach { link ->
+                                    val line = PrerequisiteText.of(link, cardTitles)
+                                    Text(
+                                        text = buildString {
+                                            append("${line.kindLabel}：${line.title}")
+                                            line.reason?.let { append(" —— $it") }
+                                            append("（${line.sourceLabel}）")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (card.prerequisites.size > MAX_PREREQ_LINES) {
+                                    Text(
+                                        text = "还有 ${card.prerequisites.size - MAX_PREREQ_LINES} 条前置",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
