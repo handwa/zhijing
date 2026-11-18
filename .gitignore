@@ -25,6 +25,11 @@ build/
 __pycache__/
 *.pyc
 
+# 契约生成产物（机器生成，供人工审阅；不进仓库）
+kg/data/out/triples_candidates.json
+kg/data/out/triples_prompts.json
+kg/data/out/triples_report.md
+
 # 大体积模型资产不进仓库（约 2 GB），由开发者本地放置
 **/assets/model/*.gguf
 /CODEBUDDY.md
